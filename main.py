@@ -355,8 +355,7 @@ def cambiar_estado():
                     except ValueError:
                         print("Año inválido. Intente nuevamente")
             habitacion = 0
-            registro = f"Estado modificado a {estado} - {str(datetime.now())[:-7]}"
-            cursor.execute('''UPDATE HUESPEDES SET ESTADO = ?, CHECKIN = ?, CHECKOUT = ?, NACIMIENTO = ?, HABITACION = ?, REGISTRO = ? WHERE NUMERO = ?''', (estado,checkin,checkout,nacimiento,habitacion,registro,numero))
+            cursor.execute('''UPDATE HUESPEDES SET ESTADO = ?, CHECKIN = ?, CHECKOUT = ?, NACIMIENTO = ?, HABITACION = ? WHERE NUMERO = ?''', (estado,checkin,checkout,nacimiento,habitacion,numero))
             conexion.commit()
         elif opcion == "2":
             estado = "ABIERTO"
