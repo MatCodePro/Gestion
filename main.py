@@ -1,11 +1,6 @@
 #TODO:
 
-#1 Una vez buscado el huesped, qué hacer con él
-#Continuar por cambiar estado huesped
-
 #Cargar productos al huesped
-#Definir acciones al cambiar el estado del huesped
-#Al cerrar un huesped modificar la habitación a 0
 
 #producir_informes()
 #Generar reporte de huéspedes en estado ABIERTO
@@ -13,131 +8,205 @@
 
 from datetime import datetime, date
 import sqlite3
-from unidecode import *
+from unidecode import unidecode
+import re
+
+
+### CLASES ###
+
+class DBManager:
+    def __init__(self, db_path="BaseDeDatos"):
+        self.conn = sqlite3.connect(db_path)
+        self.cursor = self.conn.cursor()
+
+    def ejecutar(self, query, params=()):
+        self.cursor.execute(query, params)
+        self.conn.commit()
+
+    def obtener_uno(self, query, params=()): # Renamed from 'uno'
+        self.cursor.execute(query, params)
+        return self.cursor.fetchone()
+
+    def obtener_todos(self, query, params=()): # Renamed from 'todos'
+        self.cursor.execute(query, params)
+        return self.cursor.fetchall()
+
+    def cerrar(self):
+        self.conn.close()
 
 
 ### VARIABLES GLOBALES ###
 
-conexion = sqlite3.connect('BaseDeDatos')
-cursor = conexion.cursor()
+db = DBManager()
 
 
 ### FUNCIONES ###
 
-def solo_por_hoy():
-    cursor.execute("ALTER TABLE HUESPEDES RENAME TO HUESPEDES_OLD")
-
-    # Paso 2: Crear la nueva tabla con ESTADO como TEXT
-    cursor.execute("""CREATE TABLE HUESPEDES (NUMERO INTEGER PRIMARY KEY AUTOINCREMENT, APELLIDO TEXT, NOMBRE TEXT, TELEFONO INTEGER, EMAIL TEXT, BOOKING TEXT, ESTADO TEXT, CHECKIN TEXT, CHECKOUT TEXT, DOCUMENTO INTEGER, NACIMIENTO INTEGER, HABITACION INTEGER, CONTINGENTE INTEGER, REGISTRO TEXT)""")
-
-    # Paso 3: Copiar los datos, convirtiendo ESTADO a TEXT
-    cursor.execute("""INSERT INTO HUESPEDES (NUMERO, APELLIDO, NOMBRE, TELEFONO, EMAIL, BOOKING, ESTADO, CHECKIN, CHECKOUT, DOCUMENTO, NACIMIENTO, HABITACION, CONTINGENTE, REGISTRO)
-    SELECT NUMERO, APELLIDO, NOMBRE, TELEFONO, EMAIL, CAST(BOOKING AS TEXT), ESTADO, CHECKIN, CHECKOUT, DOCUMENTO, CAST(NACIMIENTO AS INTEGER), HABITACION, CONTINGENTE, REGISTRO
-    FROM HUESPEDES_OLD
-    """)
-
-    # Paso 4: Eliminar la tabla antigua si todo está bien
-    cursor.execute("DROP TABLE HUESPEDES_OLD")
-
-    # Guardar cambios y cerrar
-    conexion.commit()
-
 def productos_existe():
-    cursor.execute('''CREATE TABLE IF NOT EXISTS PRODUCTOS(CODIGO INTEGER PRIMARY KEY AUTOINCREMENT, NOMBRE TEXT, PRECIO REAL, STOCK INTEGER)''')
+    db.ejecutar('''CREATE TABLE IF NOT EXISTS PRODUCTOS(CODIGO INTEGER PRIMARY KEY AUTOINCREMENT, NOMBRE TEXT, PRECIO REAL, STOCK INTEGER)''')
+    #cursor.execute('''CREATE TABLE IF NOT EXISTS PRODUCTOS(CODIGO INTEGER PRIMARY KEY AUTOINCREMENT, NOMBRE TEXT, PRECIO REAL, STOCK INTEGER)''')
 
 def huespedes_existe():
-    cursor.execute('''CREATE TABLE IF NOT EXISTS HUESPEDES(NUMERO INTEGER PRIMARY KEY AUTOINCREMENT, APELLIDO TEXT, NOMBRE TEXT, TELEFONO INTEGER, EMAIL TEXT, BOOKING TEXT, ESTADO TEXT, CHECKIN TEXT, CHECKOUT TEXT, DOCUMENTO INTEGER, NACIMIENTO INTEGER, HABITACION INTEGER, CONTINGENTE INTEGER, REGISTRO TEXT)''')
+    db.ejecutar('''CREATE TABLE IF NOT EXISTS HUESPEDES(NUMERO INTEGER PRIMARY KEY AUTOINCREMENT, APELLIDO TEXT, NOMBRE TEXT, TELEFONO INTEGER, EMAIL TEXT, BOOKING TEXT, ESTADO TEXT, CHECKIN TEXT, CHECKOUT TEXT, DOCUMENTO INTEGER, NACIMIENTO INTEGER, HABITACION INTEGER, CONTINGENTE INTEGER, REGISTRO TEXT)''')
+    #cursor.execute('''CREATE TABLE IF NOT EXISTS HUESPEDES(NUMERO INTEGER PRIMARY KEY AUTOINCREMENT, APELLIDO TEXT, NOMBRE TEXT, TELEFONO INTEGER, EMAIL TEXT, BOOKING TEXT, ESTADO TEXT, CHECKIN TEXT, CHECKOUT TEXT, DOCUMENTO INTEGER, NACIMIENTO INTEGER, HABITACION INTEGER, CONTINGENTE INTEGER, REGISTRO TEXT)''')
 
 def imprimir_huesped(huesped):
-    print(f"\nHuesped seleccionado:")
-    columnas = [desc[0] for desc in cursor.description]
+    print(f"\nHuésped seleccionado:")
+    columnas = ["NUMERO", "APELLIDO", "NOMBRE", "TELEFONO", "EMAIL", "BOOKING", "ESTADO","CHECKIN", "CHECKOUT", "DOCUMENTO", "NACIMIENTO", "HABITACION", "CONTINGENTE", "REGISTRO"]
     for col, val in zip(columnas, huesped):
+        if col in ("CHECKIN", "CHECKOUT"):
+            val = formatear_fecha(val)
         print(f"{col}: {val}")
-    print("")
     print("-" * 40)
 
 def imprimir_huespedes(huespedes):
+    columnas = ["NUMERO", "APELLIDO", "NOMBRE", "TELEFONO", "EMAIL", "BOOKING", "ESTADO", "CHECKIN", "CHECKOUT", "DOCUMENTO", "NACIMIENTO", "HABITACION", "CONTINGENTE", "REGISTRO"]
     print("\nListado de huéspedes:\n")
     for huesped in huespedes:
-        columnas = [column[0] for column in cursor.description]
         for col, val in zip(columnas, huesped):
+            if col in ("CHECKIN", "CHECKOUT"):
+                val = formatear_fecha(val)
             print(f"{col}: {val}")
-        print("")
-    print("-" * 40)
+        print("-" * 40)
 
 def pedir_fecha_valida(mensaje):
     while True:
-        fecha_input = input(mensaje)
+        fecha_input = input(mensaje).strip()
         try:
             fecha = datetime.strptime(fecha_input, '%d-%m-%Y').date()
             if fecha >= date.today():
-                return fecha_input  # Devolvemos la cadena válida para guardar
+                return fecha.isoformat()  # → 'YYYY-MM-DD'
             else:
                 print("La fecha debe ser igual o posterior a hoy.")
         except ValueError:
             print("Formato inválido. Use DD-MM-YYYY.")
 
-def inicio():
-    respuesta_home = input("\n¿Qué desea hacer?:\n1. Gestionar de huéspedes\n2. Gestionar de consumos\n3. Gestionar de productos\n4. Gestionar de inventario\n5. Generar reportes\n")
+def formatear_fecha(fecha_iso):
+    """
+    Convierte una fecha 'YYYY-MM-DD' a 'DD-MM-YYYY'.
+    Si ya está vacía o mal formateada, la devuelve igual.
+    """
     try:
-        respuesta_home = int(respuesta_home)
-    except ValueError:
-        print("Elección inválida. Intente nuevamente: ")
-        inicio()
-    if respuesta_home == 1:
-        gestionar_huespedes() 
-    elif respuesta_home == 2:
-        gestionar_consumos()
-    elif respuesta_home == 3:
-        gestionar_productos()
-    elif respuesta_home == 4:
-        gestionar_inventario()
-    elif respuesta_home == 5:
-        generar_reportes()
-    else: inicio()
+        return datetime.strptime(fecha_iso, "%Y-%m-%d").strftime("%d-%m-%Y")
+    except Exception:
+        return fecha_iso
+
+def pedir_entero(mensaje, minimo=None, maximo=None):
+    while True:
+        valor = input(mensaje).strip()
+        if not valor.isdigit():
+            print("Debe ingresar un número válido.")
+            continue
+        valor = int(valor)
+        if minimo is not None and valor < minimo:
+            print(f"Debe ser mayor o igual a {minimo}.")
+            continue
+        if maximo is not None and valor > maximo:
+            print(f"Debe ser menor o igual a {maximo}.")
+            continue
+        return valor
+
+def pedir_confirmacion(mensaje="¿Confirma la acción? (si/no): "):
+    while True:
+        respuesta = input(mensaje).strip().lower()
+        if respuesta in ("si", "s"):
+            return "si"
+        elif respuesta in ("no", "n"):
+            return "no"
+        else:
+            print("Respuesta inválida. Escriba 'si' o 'no'.")
+
+def pedir_mail():
+    while True:
+        email = input("Ingrese el e-mail de contacto: ").strip()
+        if re.match(r"[^@]+@[^@]+\.[^@]+", email):
+            return email
+        print("Correo electrónico inválido.")
+
+def pedir_precio(mensaje):
+    while True:
+        entrada = input(mensaje).replace(",", ".").strip()
+        try:
+            return float(entrada)
+        except ValueError:
+            print("Precio no válido. Intente nuevamente.")
+
+def imprimir_producto(producto):
+    columnas = ["CODIGO", "NOMBRE", "PRECIO", "STOCK"]
+    print("\nProducto seleccionado:")
+    for col, val in zip(columnas, producto):
+        print(f"{col}: {val}")
+    print("-" * 40)
+
+def imprimir_productos(productos):
+    columnas = ["CODIGO", "NOMBRE", "PRECIO", "STOCK"]
+    print("\nListado de productos:\n")
+    for producto in productos:
+        for col, val in zip(columnas, producto):
+            print(f"{col}: {val}")
+        print("-" * 40)
+
+def inicio():
+    while True:
+        respuesta_home = input("\n¿Qué desea hacer?:\n1. Gestionar de huéspedes\n2. Gestionar de consumos\n3. Gestionar de productos\n4. Gestionar de inventario\n5. Generar reportes\n0. Cerrar").strip()
+        if respuesta_home == "0":
+            return
+        if respuesta_home == "1":
+            gestionar_huespedes()
+        elif respuesta_home == "2":
+            gestionar_consumos()
+        elif respuesta_home == "3":
+            gestionar_productos()
+        elif respuesta_home == "4":
+            gestionar_inventario()
+        elif respuesta_home == "5":
+            generar_reportes()
+        else:
+            print("Opción inválida. Intente nuevamente: ")
 
 def gestionar_huespedes():
-    respuesta_huespedes = input("\n1. Registrar nuevo huesped\n2. Buscar un huesped\n3. Cambiar el estado de un huesped\n4. Editar huesped\n5. Eliminar un huesped\n0. Volver al inicio\n")
-    try:
-        respuesta_huespedes = int(respuesta_huespedes)
-    except ValueError:
-        print("Elección inválida. Intente nuevamente: ")
-        return gestionar_huespedes()
-    if respuesta_huespedes == 1:
-        nuevo_huesped()
-    elif respuesta_huespedes == 2:
-        buscar_huesped()
-    elif respuesta_huespedes == 3:
-        cambiar_estado()
-    elif respuesta_huespedes == 4:
-        editar_huesped()
-    elif respuesta_huespedes == 5:
-        eliminar_huesped()
-    elif respuesta_huespedes == 0:
-        inicio()
-    else: gestionar_huespedes()
+    while True:
+        respuesta_huespedes = input("\n1. Registrar nuevo huesped\n2. Buscar un huesped\n3. Cambiar el estado de un huesped\n4. Editar huesped\n5. Eliminar un huesped\n0. Volver al inicio\n").strip()
+        if respuesta_huespedes == "1":
+            nuevo_huesped()
+        elif respuesta_huespedes == "2":
+            buscar_huesped()
+        elif respuesta_huespedes == "3":
+            cambiar_estado()
+        elif respuesta_huespedes == "4":
+            editar_huesped()
+        elif respuesta_huespedes == "5":
+            eliminar_huesped()
+        elif respuesta_huespedes == "0":
+            return
+        else:
+            print("Opción inválida. Intente nuevamente: ")
+
+def registrar_huesped(db, data):
+    """ Registra un nuevo huésped en la base de datos.
+    `data` es un diccionario con todos los campos necesarios."""
+    sql = """ INSERT INTO HUESPEDES (APELLIDO, NOMBRE, TELEFONO, EMAIL, BOOKING, ESTADO, CHECKIN, CHECKOUT, DOCUMENTO, NACIMIENTO, HABITACION, CONTINGENTE, REGISTRO) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+    valores = (data["apellido"],data["nombre"], data["telefono"], data["email"], data["booking"], data["estado"], data["checkin"], data["checkout"], data["documento"], data["nacimiento"], data["habitacion"], data["contingente"], data["registro"])
+    db.ejecutar(sql, valores)
 
 def nuevo_huesped():
     while True:
-        apellido = input("\nEscriba el apellido del huesped ó (0) para cancelar: ")
-        if apellido.isdigit():
-            try:
-                apellido = int(apellido)
-                if apellido == 0:
-                    return gestionar_huespedes()
-            except ValueError:
-                print("Selección inválida. Intente nuevamente. ")
-                continue
-        else:
-            apellido = unidecode(apellido)
-            break
+        respuesta_apellido = input("\nEscriba el apellido del huesped ó (0) para cancelar: ").strip()
+        if respuesta_apellido == "0":
+            print("Registro de huésped cancelado.")
+            return
+        if not respuesta_apellido:
+            print("El apellido no puede estar vacío.")
+            continue
+        apellido = unidecode(respuesta_apellido)
+        break
     while True:
-        nombre = input("\nEscriba el nombre del huesped ó (0) para cancelar: ")
+        nombre = input("\nEscriba el nombre del huesped ó (0) para cancelar: ").strip()
         if nombre.isdigit():
             try:
                 nombre = int(nombre)
                 if nombre == 0:
-                    return gestionar_huespedes()
+                    return
             except ValueError:
                 print("Selección inválida. Intente nuevamente. ")
                 continue
@@ -145,691 +214,454 @@ def nuevo_huesped():
             nombre = unidecode(nombre)
             break
     while True:
-        telefono = input("Ingrese un whatsapp de contacto: ")
-        if telefono.isdigit():
-            try:
-                telefono = int(telefono)
-                break
-            except ValueError:
-                print("Teléfono inválido. Intente nuevamente.")
-        else:
-            print("Teléfono inválido. Intente nuevamente.")
-    email = input("Ingrese el e-mail de contacto: ")
+        telefono = pedir_entero("Ingrese un whatsapp de contacto: ", minimo=10000000000)
+        break
+    email = pedir_mail()
+    booking = pedir_confirmacion("¿Es una reserva de booking? si/no ")
     while True:
-        respuesta_booking = input("Es una reserva de booking? si/no ")
-        if respuesta_booking == "si" or respuesta_booking == "no":
-            booking = respuesta_booking
+        pregunta_estado = input("¿Es un huesped programado (1) ó es un checkin (2)? ").strip()
+        if pregunta_estado == "1":
+            estado = "PROGRAMADO"
+            checkin = pedir_fecha_valida("Ingrese la fecha de checkin (DD-MM-YYYY): ")
+            checkout = pedir_fecha_valida("Ingrese la fecha de checkout en formato DD-MM-YYYY: ")
+            while checkout < checkin:
+                print("La fecha de checkout no puede ser anterior al checkin.")
+                checkout = pedir_fecha_valida("Ingrese la fecha de checkout nuevamente (DD-MM-YYYY): ")
+            documento = 0
+            nacimiento = 0
+            habitacion = 0
             break
-        else:
-            print('Respuesta inválida. Intente nuevamente con "si" o "no" ')
-    while True:
-        pregunta_estado = input("Es un huesped programado (1) ó es un checkin (2)? ")
-        try:
-            pregunta_estado = int(pregunta_estado)
-            if pregunta_estado == 1:
-                estado = "PROGRAMADO"
-                checkin = pedir_fecha_valida("Ingrese la fecha de checkin (DD-MM-YYYY): ")
-                while True:
-                    checkout = input("Ingrese la fecha de checkout en formato DD-MM-YYYY: ")
-                    numeros_checkout = checkout.split("-")
-                    fecha_checkout = date(numeros_checkout[2],numeros_checkout[1],numeros_checkout[0])
-                    numeros = checkin.split("-")
-                    fecha_checkin = date(numeros[2],numeros[1],numeros[0])
-                    if fecha_checkout >= fecha_checkin:
-                        break
-                    else:
-                        print("La fecha de checkout es anterior a la fecha de checkin.")
-                documento = 0
-                nacimiento = 0
-                habitacion = 0
-                break
-            elif pregunta_estado == 2:
-                estado = "ABIERTO"
-                checkin = str(date.today())
-                checkout = pedir_fecha_valida("Ingrese la fecha de checkout en formato DD-MM-YYYY: ")
-                while datetime.strptime(checkout, '%d-%m-%Y').date() < datetime.strptime(checkin, '%d-%m-%Y').date():
-                    print("La fecha de checkout no puede ser anterior al checkin.")
-                    checkout = pedir_fecha_valida("Ingrese la fecha de checkout nuevamente (DD-MM-YYYY): ")
-                documento = input("Ingerse el documento: ")
-                while True:
-                    nacimiento = input("Ingrese el año de nacimiento: ")
-                    try:
-                        nacimiento = int(nacimiento)
-                        if nacimiento > 1900:
-                            break
-                        else:
-                            print("Año inválido. Intente nuevamente")
-                            continue
-                    except ValueError:
-                        print("Año inválido. Intente nuevamente")
-                habitacion = input("Ingresa el número de habitación: ")
-                break
-            elif pregunta_estado == 0:
-                return gestionar_huespedes()
-            else:
-                print("Respuesta inválida. Intente nuevamente. ")
-                continue
-        except ValueError:
-            print("Respuesta inválida. Intente nuevamente. ")
-    while True:
-        contingente = input("Ingrese la cantidad de huéspedes: ")
-        try:
-            contingente = int(contingente)
+        elif pregunta_estado == "2":
+            estado = "ABIERTO"
+            checkin = date.today().isoformat()
+            checkout = pedir_fecha_valida("Ingrese la fecha de checkout en formato DD-MM-YYYY: ")
+            while checkout < checkin:
+                print("La fecha de checkout no puede ser anterior al checkin.")
+                checkout = pedir_fecha_valida("Ingrese la fecha de checkout nuevamente (DD-MM-YYYY): ")
+            documento = input("Ingerse el documento: ").strip()
+            nacimiento = pedir_entero("Ingrese el año de nacimiento: ", minimo=1900)
+            habitacion = pedir_entero("Ingrese el número de habitación: ", minimo=1 , maximo=7)
             break
-        except ValueError:
+        elif pregunta_estado == "0":
+            return
+        else:
             print("Respuesta inválida. Intente nuevamente. ")
-    registro = f"CREADO {estado} - {str(datetime.now())[:-7]}"
-    cursor.execute('''INSERT INTO HUESPEDES (APELLIDO, NOMBRE, TELEFONO, EMAIL, BOOKING, ESTADO, CHECKIN, CHECKOUT, DOCUMENTO, NACIMIENTO, HABITACION, CONTINGENTE, REGISTRO) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) ''', (apellido,nombre,telefono,email,booking,estado,checkin,checkout,documento,nacimiento,habitacion,contingente,registro))
-    conexion.commit()
-    gestionar_huespedes()
+            continue
+    contingente = pedir_entero("Ingrese la cantidad de huéspedes: ",minimo=1)
+    registro = f"CREADO {estado} - {datetime.now().isoformat(timespec='seconds')}"
+
+    data = {"apellido": apellido, "nombre": nombre, "telefono": telefono, "email": email, "booking": booking, "estado": estado, "checkin": checkin, "checkout": checkout, "documento": documento, "nacimiento": nacimiento, "habitacion": habitacion, "contingente": contingente, "registro": registro}
+
+    registrar_huesped(db, data)
+    print("✔ Huésped registrado correctamente.")
+    return
 
 def buscar_huesped():
+    opciones = {
+        "1": ("APELLIDO", lambda: f"%{input("Ingrese el apellido: ").strip()}%"),
+        "2": ("NUMERO", lambda: input("Ingrese el número de huesped: ").strip()),
+        "3": ("HABITACION", lambda: input("Ingrese el número de habitación: ").strip()),
+        "4": ("DOCUMENTO", lambda: input("Ingrese el número de documento: ").strip()),
+        "5": ("*", None)  # Ver todos
+    }
+
     while True:
-        campo = input("\n¿Cómo desea buscar al huesped?\n1. Por apellido\n2. Por número de huesped\n3. Por número de habitación\n4. Por documento\n5. Imprimir todos\n0. Cancelar\n")
-        if campo.isdigit():
-            try:
-                campo = int(campo)
-                if campo == 0:
-                    return gestionar_huespedes()
-                elif campo == 1:
-                    criterio = input("Ingrese el apellido: ")
-                    criterio = f"%{criterio}%"
-                    cursor.execute('SELECT * FROM HUESPEDES WHERE APELLIDO LIKE ?', (criterio,))
-                    huespedes = cursor.fetchall()
-                    if huespedes:
-                        imprimir_huespedes(huespedes)
-                        break
-                    else:
-                        criterio = criterio.replace("%","")
-                        print(f"No se encontraron huéspedes con el apellido {criterio}")
-                        return buscar_huesped()
-                elif campo == 2:
-                    while True:
-                        criterio = input("Ingrese el número de huesped: ")
-                        if criterio.isdigit():
-                            try:
-                                criterio = int(criterio)
-                                cursor.execute('SELECT * FROM HUESPEDES WHERE NUMERO = ?', (criterio,))
-                                huesped = cursor.fetchone()
-                                if not huesped == None:
-                                    print(huesped)
-                                    break
-                                else:
-                                    print(f"No se encontraron huéspedes con el número {criterio}")
-                                    return buscar_huesped()
-                                break
-                            except ValueError:
-                                print("Numero inválido. Intente nuevamente.")
-                elif campo == 3:
-                    while True:
-                        criterio = input("Ingrese el número de habitación: ")
-                        if criterio.isdigit():
-                            try:
-                                criterio = int(criterio)
-                                cursor.execute('SELECT * FROM HUESPEDES WHERE HABITACION = ?', (criterio,))
-                                huesped = cursor.fetchone()
-                                if not huesped == None:
-                                    print(huesped)
-                                    break
-                                else:
-                                    print(f"No se encontraron huéspedes en la habitación {criterio}")
-                                    return buscar_huesped()
-                            except ValueError:
-                                print("Numero inválido. Intente nuevamente.")
-                elif campo == 4:
-                    criterio = input("Ingrese el número de documento: ")
-                    cursor.execute('SELECT * FROM HUESPEDES WHERE DOCUMENTO LIKE ?', (criterio,))
-                    huespedes = cursor.fetchall()
-                    if huespedes:
-                        imprimir_huespedes(huespedes)
-                        break
-                    else:
-                        print(f"No se encontraron huéspedes con el documento {criterio}")
-                        return buscar_huesped()
-                elif campo == 5:
-                    cursor.execute('SELECT * FROM HUESPEDES')
-                    huespedes = cursor.fetchall()
-                    if huespedes:
-                        imprimir_huespedes(huespedes)
-                        break
-                    else:
-                        print("No se encontraron huespedes")
-                        return gestionar_huespedes()
-                else:
-                    print("Respuesta inválida. Intente nuevamente. ")
-                editar_huesped()
-            except ValueError:
-                print("Respuesta inválida. Intente nuevamente. ")
-                continue
+        opcion = input("\n¿Cómo desea buscar al huesped?\n1. Por apellido\n2. Por número de huesped\n3. Por número de habitación\n4. Por documento\n5. Imprimir todos\n0. Cancelar\n").strip()
+
+        if opcion == "0":
+            return
+
+        if opcion in opciones:
+            campo, get_valor = opciones[opcion]
+            if campo == "*":
+                huespedes = db.obtener_todos("SELECT * FROM HUESPEDES")
+            else:
+                valor = get_valor()
+                query = f"SELECT * FROM HUESPEDES WHERE {campo} LIKE ?" if campo == "APELLIDO" else f"SELECT * FROM HUESPEDES WHERE {campo} = ?"
+                huespedes = db.obtener_todos(query, (valor,))
+
+            if huespedes:
+                imprimir_huespedes(huespedes)
+            else:
+                print("No se encontraron coincidencias.")
+            break
         else:
-            print("Respuesta inválida. Intente nuevamente. ")
-    #1 Preguntar que hacer con el huesped que buscamos
-    gestionar_huespedes()
+            print("Opción inválida. Intente nuevamente.")
+    
+    return
 
 def cambiar_estado():
     while True:
-        numero = input("Ingrese el número de huesped que desea cambiar el estado, ingrese (*) para buscar ó ingrese (0) para cancelar: ")
+        numero = input("Ingrese el número de huésped que desea cambiar de estado, (*) para buscar ó (0) para cancelar: ").strip()
         if numero == "*":
             return buscar_huesped()
-        try:
-            numero = int(numero)
-            if numero == 0:
-                print("Cambio cancelado.")
-                return gestionar_huespedes()
-            else:
-                cursor.execute('SELECT * FROM HUESPEDES WHERE NUMERO = ?', (numero,))
-                huesped = cursor.fetchone()
-                if huesped is None:
-                    print("\nHuesped no encontrado. Intente nuevamente.")
-                    continue
-                print(f"\nHuesped seleccionado:\n{huesped}")
-                break
-        except ValueError:
-            print("Selección inválida. Intente nuevamente.")
-            continue
-    
-    while True:
-        opcion = input('\n¿A qué estado quiere cambiar? Ingrese (1) "PROGRAMADO", (2) "ABIERTO", (3) "CERRADO", ó (0) para cancelar: ')
-        if opcion == "0":
+        if numero == "0":
             print("Cambio cancelado.")
-            return cambiar_estado()
-        elif opcion == "1":
-            estado = "PROGRAMADO"
-            checkin = pedir_fecha_valida("Ingrese la nueva fecha de checkin (DD-MM-YYYY): ")
-            checkout = pedir_fecha_valida("Ingrese la nueva fecha de checkout (DD-MM-YYYY): ")
-            while datetime.strptime(checkout, '%d-%m-%Y').date() < datetime.strptime(checkin, '%d-%m-%Y').date():
-                print("La fecha de checkout no puede ser anterior al checkin.")
-                checkout = pedir_fecha_valida("Ingrese la fecha de checkout nuevamente (DD-MM-YYYY): ")
-            cursor.execute('SELECT NACIMIENTO FROM HUESPEDES WHERE NUMERO = ?',(numero,))
-            nacimiento = cursor.fetchone()[0]
-            if nacimiento < 1900:
-                while True:
-                    nacimiento = input("Ingrese el año de nacimiento: ")
-                    try:
-                        nacimiento = int(nacimiento)
-                        if nacimiento > 1900:
-                            break
-                        else:
-                            print("Año inválido. Intente nuevamente")
-                            continue
-                    except ValueError:
-                        print("Año inválido. Intente nuevamente")
-            habitacion = 0
-            cursor.execute('''UPDATE HUESPEDES SET ESTADO = ?, CHECKIN = ?, CHECKOUT = ?, NACIMIENTO = ?, HABITACION = ? WHERE NUMERO = ?''', (estado,checkin,checkout,nacimiento,habitacion,numero))
-            conexion.commit()
-        elif opcion == "2":
-            estado = "ABIERTO"
-            checkin = str(date.today())
-            checkout = pedir_fecha_valida("Ingrese la nueva fecha de checkout (DD-MM-YYYY): ")
-            while datetime.strptime(checkout, '%d-%m-%Y').date() < datetime.strptime(checkin, '%d-%m-%Y').date():
-                print("La fecha de checkout no puede ser anterior al checkin.")
-                checkout = pedir_fecha_valida("Ingrese la fecha de checkout nuevamente (DD-MM-YYYY): ")
-            cursor.execute('SELECT NACIMIENTO FROM HUESPEDES WHERE NUMERO = ?',(numero,))
-            documento = input("Ingerse el documento: ")
-            cursor.execute('SELECT NACIMIENTO FROM HUESPEDES WHERE NUMERO = ?',(numero,))
-            nacimiento = cursor.fetchone()[0]
-            if nacimiento < 1900:
-                while True:
-                    nacimiento = input("Ingrese el año de nacimiento: ")
-                    try:
-                        nacimiento = int(nacimiento)
-                        if nacimiento > 1900:
-                            break
-                        else:
-                            print("Año inválido. Intente nuevamente")
-                            continue
-                    except ValueError:
-                        print("Año inválido. Intente nuevamente")
-            habitacion = input("Ingresa el número de habitación: ")
-            while True:
-                contingente = input("Ingrese la cantidad de huéspedes: ")
-                try:
-                    contingente = int(contingente)
-                    break
-                except ValueError:
-                    print("Respuesta inválida. Intente nuevamente. ")
-            cursor.execute('''UPDATE HUESPEDES ESTADO = ?, CHECKIN = ?, CHECKOUT = ?, DOCUMENTO = ?, NACIMIENTO = ?, HABITACION = ?, CONTINGENTE = ? WHERE NUMERO = ?''', (estado,checkin,checkout,documento,nacimiento,habitacion,contingente,numero))
-            conexion.commit()
-        elif opcion == "3":
-            estado = "CERRADO"
-            checkout = str(date.today())
-            cursor.execute('''UPDATE HUESPEDES ESTADO = ?, CHECKOUT = ?, HABITACION = ? WHERE NUMERO = ?''', (estado,checkout,0,numero))
-            conexion.commit()
-        else:
-            print("Elección inválida. Intente nuevamente")
-        cursor.execute("SELECT REGISTRO FROM HUESPEDES WHERE NUMERO = ?", (numero,))
-        registro_anterior = f"{cursor.fetchone()[0]}\n"
-        registro_actual = f"Estado modificado a {estado} - {str(datetime.now())[:-7]}"
-        nuevo_registro = registro_anterior + registro_actual
-        cursor.execute("UPDATE HUESPEDES SET REGISTRO = ? WHERE NUMERO = ?", (nuevo_registro, numero))
-        conexion.commit()
-        print("Estado actualizado exitosamente: ")
-        break
-    gestionar_huespedes()
-
-def editar_huesped():
-    while True:
-        numero = input("Ingrese el número de huesped que desea editar, ingrese (*) para buscar ó ingrese (0) para cancelar: ")
-        if numero == "*":
-            return buscar_huesped()
-        try:
-            numero = int(numero)
-            if numero == 0:
-                print("Edición cancelada.")
-                return gestionar_huespedes()
-            else:
-                cursor.execute('SELECT * FROM HUESPEDES WHERE NUMERO = ?', (numero,))
-                huesped = cursor.fetchone()
-                if huesped is None:
-                    print("\nHuesped no encontrado. Intente nuevamente.")
-                    continue
-                imprimir_huesped(huesped)
-                break
-        except ValueError:
-            print("Selección inválida. Intente nuevamente.")
-            continue
-    while True:
-        opcion = input("\n¿Desea editar el apellido (1), nombre (2), teléfono (3), e-mail (4), booking (5), checkin (6), checkout (7), documento (8), nacimiento (9), habitación (10), contingente (11) ó cancelar (0)? ")
-        if opcion == "0":
-            print("Edición cancelada.")
-            break
-        elif opcion == "1":            
-            nuevo_apellido = input("Ingrese el nuevo apellido: ")
-            if nuevo_apellido:
-                cursor.execute('UPDATE HUESPEDES SET APELLIDO = ? WHERE NUMERO = ?', (nuevo_apellido, numero))
-                conexion.commit()
-                print("Apellido actualizado exitosamente.")
-                break
-            else:
-                print("El apellido no puede estar vacío.")
-        elif opcion == "2":            
-            nuevo_nombre = input("Ingrese el nuevo nombre: ")
-            if nuevo_nombre:
-                cursor.execute('UPDATE HUESPEDES SET NOMBRE = ? WHERE NUMERO = ?', (nuevo_nombre, numero))
-                conexion.commit()
-                print("Nombre actualizado exitosamente.")
-                break
-            else:
-                print("El nombre no puede estar vacío.")
-        elif opcion == "3":            
-            while True:
-                nuevo_telefono = input("Ingrese el nuevo whatsapp de contacto: ")
-                if nuevo_telefono:
-                    try:
-                        nuevo_telefono = int(nuevo_telefono)
-                        cursor.execute('UPDATE HUESPEDES SET TELEFONO = ? WHERE NUMERO = ?', (nuevo_telefono, numero))
-                        conexion.commit()
-                        print("Teléfono actualizado exitosamente.")
-                        break
-                    except ValueError:
-                        print("Teléfono inválido. Intente nuevamente.")
-                else:
-                    print("El teléfono no puede estar vacío.")
-        elif opcion == "4":
-            while True:
-                nuevo_email = input("Ingrese el e-mail de contacto: ")
-                if nuevo_email:
-                    cursor.execute('UPDATE HUESPEDES SET EMAIL = ? WHERE NUMERO = ?', (nuevo_email, numero))
-                    conexion.commit()
-                    print("E-mail actualizado exitosamente.")
-                    break
-                else:
-                    print("El e-mail no puede estar vacío.")
-        elif opcion == "5":
-            while True:
-                nuevo_booking = input("Es una reserva de booking? si/no ")
-                if nuevo_booking:
-                    if nuevo_booking == "si" or nuevo_booking == "no":
-                        cursor.execute('UPDATE HUESPEDES SET BOOKING = ? WHERE NUMERO = ?', (nuevo_booking, numero))
-                        conexion.commit()
-                        print("Booking actualizado exitosamente.")
-                        break
-                    else:
-                        print('Respuesta inválida. Intente nuevamente con "si" o "no" ')
-                else:
-                    print("Booking no puede estar vacío.")
-        elif opcion == "6":
-            while True:
-                nuevo_checkin = pedir_fecha_valida("Ingrese la nueva fecha de checkin (DD-MM-YYYY): ")
-                cursor.execute('UPDATE HUESPEDES SET CHECKIN = ? WHERE NUMERO = ?', (nuevo_checkin, numero))
-                conexion.commit()
-                print("Checkin actualizado exitosamente.")
-        elif opcion == "7":
-            while True:
-                    nuevo_checkout = input("Ingrese la fecha de checkout en formato DD-MM-YYYY: ")
-                    try:
-                        datetime.datetime.strptime(nuevo_checkout, '%d-%m-%Y')
-                        numeros_checkout = nuevo_checkout.split("-")
-                        fecha_checkout = date(numeros_checkout[2],numeros_checkout[1],numeros_checkout[0])
-                        cursor.execute("SELECT CHECKIN FROM HUESPEDES WHERE NUMERO = ?", (numero,))
-                        checkin = f"{cursor.fetchone()[0]}\n"
-                        numeros = checkin.split("-")
-                        fecha_checkin = date(numeros[2],numeros[1],numeros[0])
-                        if fecha_checkout >= fecha_checkin:
-                            cursor.execute("UPDATE HUESPEDES SET CHECKOUT = ? WHERE NUMERO = ?", (nuevo_checkout, numero))
-                            conexion.commit()
-                            print("Checkout actualizado exitosamente: ")
-                            break
-                        else:
-                            print("La fecha de checkout es anterior a la fecha de checkin.")
-                    except ValueError:
-                        print("Formato de fecha no válido. Intente nuevamente.")
-        elif opcion == "8":
-            nuevo_documento = input("Ingrese el nuevo documento: ")
-            cursor.execute("UPDATE HUESPEDES SET DOCUMENTO = ? WHERE NUMERO = ?", (nuevo_documento, numero))
-            conexion.commit()
-            print("Documento actualizado exitosamente: ")
-        elif opcion == "9":
-            while True:
-                nuevo_nacimiento = input("Ingrese el año de nacimiento: ")
-                try:
-                    nuevo_nacimiento = int(nuevo_nacimiento)
-                    if nuevo_nacimiento > 1900:
-                        cursor.execute("UPDATE HUESPEDES SET NACIMIENTO = ? WHERE NUMERO = ?", (nuevo_nacimiento, numero))
-                        conexion.commit()
-                        print("Nacimiento actualizado exitosamente: ")
-                        break
-                    else:
-                        print("Año inválido. Intente nuevamente")
-                        continue
-                except ValueError:
-                    print("Año inválido. Intente nuevamente")
-        elif opcion == "10":
-            while True:
-                nueva_habitacion = input("Ingrese la nueva habitación: ")
-                try:
-                    nueva_habitacion = int(nueva_habitacion)
-                    if nueva_habitacion < 8:
-                        cursor.execute("UPDATE HUESPEDES SET HABITACION = ? WHERE NUMERO = ?", (nueva_habitacion, numero))
-                        conexion.commit()
-                        print("Habitación actualizada exitosamente: ")
-                        break
-                    else:
-                        print("Habitación inválida. Intente nuevamente")
-                except ValueError:
-                    print("Habitación inválida. Intente nuevamente")
-        elif opcion == "11":
-            while True:
-                nuevo_contingente = input("Ingrese la cantidad de huéspedes: ")
-                try:
-                    nuevo_contingente = int(nuevo_contingente)
-                    cursor.execute("UPDATE HUESPEDES SET CONTINGENTE = ? WHERE NUMERO = ?", (nuevo_contingente, numero))
-                    conexion.commit()
-                    print("Contingente actualizado exitosamente: ")
-                    break
-                except ValueError:
-                    print("Cantidad inválida. Intente nuevamente")
-    gestionar_huespedes()
-
-def eliminar_huesped():
-    while True:
-        numero = input("Ingrese el número del huésped que desea eliminar, (*) para buscar o (0) para cancelar: ").strip()
-        if numero == "*":
-            buscar_huesped()
-            return
+            return gestionar_huespedes()
         if not numero.isdigit():
             print("Número inválido. Intente nuevamente.")
             continue
-        numero = int(numero)
-        if numero == 0:
-            print("Eliminación cancelada.")
-            gestionar_huespedes()
-            return
 
-        # Buscar el huésped por número
-        cursor.execute('SELECT * FROM HUESPEDES WHERE NUMERO = ?', (numero,))
-        huesped = cursor.fetchone()
+        numero = int(numero)
+        huesped = db.obtener_uno("SELECT * FROM HUESPEDES WHERE NUMERO = ?", (numero,))
         if huesped is None:
             print("Huésped no encontrado. Intente nuevamente.")
             continue
 
-        # Mostrar los datos del huésped
         imprimir_huesped(huesped)
+        break
 
-        # Confirmación
-        confirmacion = input("¿Está seguro que desea eliminar este huésped? (si/no): ").lower()
-        if confirmacion == "si":
-            cursor.execute('DELETE FROM HUESPEDES WHERE NUMERO = ?', (numero,))
-            conexion.commit()
-            print("Huésped eliminado correctamente.\n")
-            gestionar_huespedes()
-            return
-        elif confirmacion == "no":
-            print("Eliminación cancelada.\n")
-            gestionar_huespedes()
-            return
-        else:
-            print("Respuesta inválida. Se canceló la eliminación por seguridad.\n")
-            gestionar_huespedes()
-            return
-
-def gestionar_consumos():
-    respuesta_consumos = input("\n1. Agregar consumo\n2. Ver consumos\n9. Volver al inicio\n")
-    try:
-        respuesta_consumos = int(respuesta_consumos)
-    except ValueError:
-        print("Elección inválida. Intente nuevamente: ")
-        return gestionar_consumos()
-    if respuesta_consumos == 1:
-        agregar_consumo()
-    elif respuesta_consumos == 2:
-        ver_consumos()
-    elif respuesta_consumos == 9:
-        inicio()
-    else: gestionar_consumos()
-
-def gestionar_productos():
-    respuesta_productos = input("\n1. Agregar producto\n2. Ver productos\n3. Buscar productos\n4. Editar producto\n5. Eliminar producto\n0. Volver al inicio\n")
-    try:
-        respuesta_productos = int(respuesta_productos)
-    except ValueError:
-        print("Elección inválida. Intente nuevamente: ")
-        return gestionar_productos()
-    if respuesta_productos == 1:
-        agregar_producto()
-    elif respuesta_productos == 2:
-        ver_productos()
-    elif respuesta_productos == 3:
-        buscar_producto()
-    elif respuesta_productos == 4:
-        editar_producto()
-    elif respuesta_productos == 5:
-        eliminar_producto()
-    elif respuesta_productos == 0:
-        inicio()
-    else: gestionar_productos()
-
-def agregar_producto():
-    nombre = input("\nEscriba el nombre del producto ó (0) para cancelar: ")
-    precio = 0.01
-    stock = 0
-    if nombre == 0:
-        return gestionar_productos()
-    else: 
-        while True:
-            respuesta_precio = str(input("Ingrese el precio del producto: "))
-            try:
-                precio = float(respuesta_precio.replace("," , "."))
-                break
-            except ValueError:
-                print("El precio ingresado es un valor no valido")
-        cursor.execute('''INSERT INTO PRODUCTOS (NOMBRE, PRECIO, STOCK) VALUES (?,?,?) ''', (nombre,precio,stock))
-        conexion.commit()
-        gestionar_productos()
-
-def ver_productos():
-    cursor.execute(''' SELECT * FROM PRODUCTOS ''')
-    print("")
-    for producto in cursor.fetchall():
-        print(producto)
-    gestionar_productos()
-
-def buscar_producto():
-    criterio = input("Ingrese el producto que desea buscar ó (0) para cancelar: ")
-    if criterio == 0:
-        return gestionar_productos()
-    else:
-        def buscar_criterio(criterio):
-            # Separar palabras clave
-            criterios = criterio.strip().lower().split()
-            if not criterios:
-                print("No se ingresaron criterios de búsqueda.")
-                buscar_producto()
-                
-            # Crear la cláusula WHERE dinámica
-            where_clauses = []
-            params = []
-            for palabra in criterios:
-                where_clauses.append("LOWER(NOMBRE) LIKE ?")
-                params.append(f"%{palabra}%")
-            
-            where_query = " OR ".join(where_clauses)
-            
-            query = f"SELECT * FROM PRODUCTOS WHERE {where_query}"
-            cursor.execute(query, params)
-            productos = cursor.fetchall()
-
-            # Calcular la relevancia (cantidad de coincidencias de palabras clave)
-            resultados = []
-            for producto in productos:
-                nombre = producto[1].lower()
-                coincidencias = sum(1 for palabra in criterios if palabra in nombre)
-                resultados.append((producto, coincidencias))
-
-            # Ordenar por coincidencias (mayor a menor)
-            resultados.sort(key=lambda x: x[1], reverse=True)
-
-            # Mostrar con formato
-            if resultados:
-                print(f"\nResultados para: '{criterio}'\n")
-                print(f"{'ID':<5} {'Nombre':<30} {'Precio':<10} {'Stock':<10}")
-                print("-" * 60)
-                for producto, relevancia in resultados:
-                    id_prod = producto[0]
-                    nombre = producto[1]
-                    precio = producto[2]
-                    stock = producto[3]
-                    print(f"{id_prod:<5} {nombre:<30} {precio:<10.2f} {stock:<10}")
-            else:
-                print(f"\nNo se encontraron productos que coincidan con: '{criterio}'")
-        buscar_criterio(criterio)
-
-def editar_producto():
-    while True:
-        codigo = input("\nIngrese el código del producto que desea editar, ingrese (*) para ver el listado ó ingrese (0) para cancelar: ")
-        if codigo == "*":
-            cursor.execute('SELECT * FROM PRODUCTOS')
-            productos = cursor.fetchall()
-            if productos:
-                print("\nListado de productos:")
-                for producto in productos:
-                    print(producto)
-            else:
-                print("No hay productos disponibles.")
-            continue
-        try:
-            codigo = int(codigo)
-            if codigo == 0:
-                print("Edición cancelada.")
-                return gestionar_productos()
-            else:
-                cursor.execute('SELECT * FROM PRODUCTOS WHERE CODIGO = ?', (codigo,))
-                producto = cursor.fetchone()
-                if producto is None:
-                    print("\nProducto no encontrado. Intente nuevamente.")
-                    continue
-                print(f"\nProducto seleccionado:\n{producto}")
-                break
-        except ValueError:
-            print("Código inválido. Intente nuevamente.")
-            continue
+    opciones = {"1": "PROGRAMADO","2": "ABIERTO","3": "CERRADO"}
 
     while True:
-        opcion = input("\n¿Desea editar el nombre (1), el precio (2) o cancelar (0)? ")
+        seleccion = input('\n¿A qué estado quiere cambiar\nIngrese (1) "PROGRAMADO", (2) "ABIERTO", (3) "CERRADO", ó (0) para cancelar: ').strip()
+
+        if seleccion == "0":
+            print("Cambio cancelado.")
+            return cambiar_estado()
+
+        if seleccion not in opciones:
+            print("Opción inválida. Intente nuevamente.")
+            continue
+
+        nuevo_estado = opciones[seleccion]
+        hoy = date.today().isoformat()
+
+        if nuevo_estado == "PROGRAMADO":
+            checkin = pedir_fecha_valida("Ingrese la nueva fecha de checkin (DD-MM-YYYY): ")
+            checkout = pedir_fecha_valida("Ingrese la nueva fecha de checkout (DD-MM-YYYY): ")
+            while checkout < checkin:
+                print("La fecha de checkout no puede ser anterior al checkin.")
+                checkout = pedir_fecha_valida("Ingrese la fecha de checkout nuevamente (DD-MM-YYYY): ")
+            nacimiento_data = db.obtener_uno("SELECT NACIMIENTO FROM HUESPEDES WHERE NUMERO = ?", (numero,))
+            nacimiento = nacimiento_data[0] if nacimiento_data and nacimiento_data[0] else ""
+            if nacimiento < 1900:
+                nacimiento = pedir_entero("Ingrese el año de nacimiento: ", minimo=1900)
+
+            actualizar_huesped(db, numero, "ESTADO", nuevo_estado)
+            actualizar_huesped(db, numero, "CHECKIN", checkin)
+            actualizar_huesped(db, numero, "CHECKOUT", checkout)
+            actualizar_huesped(db, numero, "HABITACION", 0)
+            actualizar_huesped(db, numero, "NACIMIENTO", nacimiento)
+
+        elif nuevo_estado == "ABIERTO":
+            checkin = hoy
+            checkout = pedir_fecha_valida("Ingrese la nueva fecha de checkout (DD-MM-YYYY): ")
+            while checkout < checkin:
+                print("La fecha de checkout no puede ser anterior al checkin.")
+                checkout = pedir_fecha_valida("Ingrese la fecha de checkout nuevamente (DD-MM-YYYY): ")
+            documento = input("Ingrese el documento: ").strip()
+            nacimiento = db.obtener_uno("SELECT NACIMIENTO FROM HUESPEDES WHERE NUMERO = ?", (numero,))[0]
+            if nacimiento < 1900:
+                nacimiento = pedir_entero("Ingrese el año de nacimiento: ", minimo=1900)
+
+            habitacion = pedir_entero("Ingrese el número de habitación: ", minimo=1, maximo=7)
+            contingente = pedir_entero("Ingrese la cantidad de huéspedes: ", minimo=1)
+
+            actualizar_huesped(db, numero, "ESTADO", nuevo_estado)
+            actualizar_huesped(db, numero, "CHECKIN", checkin)
+            actualizar_huesped(db, numero, "CHECKOUT", checkout)
+            actualizar_huesped(db, numero, "DOCUMENTO", documento)
+            actualizar_huesped(db, numero, "NACIMIENTO", nacimiento)
+            actualizar_huesped(db, numero, "HABITACION", habitacion)
+            actualizar_huesped(db, numero, "CONTINGENTE", contingente)
+
+        elif nuevo_estado == "CERRADO":
+            checkout = hoy
+            actualizar_huesped(db, numero, "ESTADO", nuevo_estado)
+            actualizar_huesped(db, numero, "CHECKOUT", checkout)
+            actualizar_huesped(db, numero, "HABITACION", 0)
+
+        # Actualizar el registro de historial
+        registro_anterior_data = db.obtener_uno("SELECT REGISTRO FROM HUESPEDES WHERE NUMERO = ?", (numero,))
+        registro_anterior = registro_anterior_data[0] if registro_anterior_data and registro_anterior_data[0] else ""
+        registro_actual = f"Estado modificado a {nuevo_estado} - {datetime.now().isoformat(timespec='seconds')}"
+        nuevo_registro = registro_anterior + registro_actual
+        actualizar_huesped(db, numero, "REGISTRO", nuevo_registro)
+
+        print(f"✔ Estado actualizado a {nuevo_estado}.")
+        break
+
+    return
+
+def actualizar_huesped(db, numero, campo, valor):
+    """Actualiza un único campo del huésped dado su número de registro."""
+    sql = f"UPDATE HUESPEDES SET {campo} = ? WHERE NUMERO = ?"
+    db.ejecutar(sql, (valor, numero))
+
+def editar_huesped():
+    while True:
+        numero = input("Ingrese el número de huésped que desea editar, (*) para buscar ó (0) para cancelar: ").strip()
+        if numero == "*":
+            return buscar_huesped()
+        if numero == "0":
+            print("Edición cancelada.")
+            return
+        if not numero.isdigit():
+            print("Número inválido. Intente nuevamente.")
+            continue
+
+        numero = int(numero)
+        huesped = db.obtener_uno("SELECT * FROM HUESPEDES WHERE NUMERO = ?", (numero,))
+        if huesped is None:
+            print("Huésped no encontrado. Intente nuevamente.")
+            continue
+
+        imprimir_huesped(huesped)
+        break
+
+    campos = {
+"1": ("APELLIDO", lambda: unidecode(input("Ingrese el nuevo apellido: ").strip())),
+"2": ("NOMBRE", lambda: unidecode(input("Ingrese el nuevo nombre: ").strip())),
+"3": ("TELEFONO", pedir_entero("Ingrese el nuevo whatsapp de contacto: ", minimo=10000000000)),
+"4": ("EMAIL", pedir_mail),
+"5": ("BOOKING", lambda: pedir_confirmacion("¿Es una reserva de Booking? si/no ")),
+"6": ("CHECKIN", lambda: pedir_fecha_valida("Ingrese la nueva fecha de checkin (DD-MM-YYYY): ")),
+"7": ("CHECKOUT", lambda: pedir_fecha_valida("Ingrese la nueva fecha de checkout (DD-MM-YYYY): ")),
+"8": ("DOCUMENTO", lambda: input("Ingrese el nuevo documento: ").strip()),
+"9": ("NACIMIENTO", lambda: pedir_entero("Ingrese el año de nacimiento: ", minimo=1900)),
+"10": ("HABITACION", lambda: pedir_entero("Ingrese la nueva habitación: ", minimo=1, maximo=7)),
+"11": ("CONTINGENTE", lambda: pedir_entero("Ingrese la cantidad de huéspedes: ", minimo=1)),
+}
+
+    while True:
+        opcion = input("\n¿Qué desea editar?\nIngrese (1) Apellido, (2) Nombre,\n(3) Teléfono, (4) Email, (5) Booking\n(6) Checkin, (7) Checkout, (8) Documento\n(9) Nacimiento, (10) Habitación, (11) Contingente\nó ingrese (0) para cancelar\n").strip()
         if opcion == "0":
             print("Edición cancelada.")
             break
-        elif opcion == "1":            
-            nuevo_nombre = input("Ingrese el nuevo nombre: ")
-            if nuevo_nombre:
-                cursor.execute('UPDATE PRODUCTOS SET NOMBRE = ? WHERE CODIGO = ?', (nuevo_nombre, codigo))
-                conexion.commit()
-                print("Nombre actualizado exitosamente.")
-                break
-            else:
-                print("El nombre no puede estar vacío.")
-        elif opcion == "2":
-            nuevo_precio = input("Ingrese el nuevo precio: ").strip().replace(",", ".")
-            try:
-                nuevo_precio = float(nuevo_precio)
-                cursor.execute('UPDATE PRODUCTOS SET PRECIO = ? WHERE CODIGO = ?', (nuevo_precio, codigo))
-                conexion.commit()
-                print("Precio actualizado exitosamente.")
-                break
-            except ValueError:
-                print("Precio inválido. Intente nuevamente.")
+
+        if opcion in campos:
+            campo_sql, funcion_valor = campos[opcion]
+            nuevo_valor = funcion_valor()
+            actualizar_huesped(db, numero, campo_sql, nuevo_valor)
+            print(f"✔ {campo_sql} actualizado correctamente.")
+            break
         else:
             print("Opción inválida. Intente nuevamente.")
-    gestionar_productos()
 
-def eliminar_producto(repre = 0):
+    return
+
+def eliminar_huesped_db(db, numero):
+    db.ejecutar("DELETE FROM HUESPEDES WHERE NUMERO = ?", (numero,))
+
+def eliminar_huesped():
     while True:
-        codigo = input("\nIngrese el código del producto que desea eliminar, ingrese (*) para ver el listado ó ingrese (0) para cancelar: ")
-        if codigo == "*":
-            cursor.execute('SELECT * FROM PRODUCTOS')
-            productos = cursor.fetchall()
-            if productos:
-                print("\nListado de productos:")
-                for producto in productos:
-                    print(producto)
-            else:
-                print("No hay productos disponibles.")
-            continue
-        if not codigo.isdigit():
-            print("Código inválido. Intente nuevamente.")
-            continue
-        if int(codigo) == 0:
+        numero = input("Ingrese el número del huésped a eliminar, (*) para buscar ó (0) para cancelar: ").strip()
+        if numero == "*":
+            return buscar_huesped()
+        if numero == "0":
             print("Eliminación cancelada.")
-            break
+            return
+        if not numero.isdigit():
+            print("Número inválido. Intente nuevamente.")
+            continue
+
+        numero = int(numero)
+        huesped = db.obtener_uno("SELECT * FROM HUESPEDES WHERE NUMERO = ?", (numero,))
+        if huesped is None:
+            print("Huésped no encontrado.")
+            continue
+
+        imprimir_huesped(huesped)
+
+        confirmacion = pedir_confirmacion("¿Está seguro que desea eliminar este huésped? (si/no): ")
+        if confirmacion == "si":
+            eliminar_huesped_db(db, numero)
+            print("✔ Huésped eliminado.")
+            return gestionar_huespedes()
+        else:
+            print("Eliminación cancelada.")
+            return
+
+def gestionar_consumos():
+    while True:
+        respuesta_consumos = input("\n1. Agregar consumo\n2. Ver consumos\n0. Volver al inicio\n").strip()
+        if respuesta_consumos == "1":
+            agregar_consumo()
+        elif respuesta_consumos == "2":
+            ver_consumos()
+        elif respuesta_consumos == "0":
+            return
+        else: 
+            print("Opción inválida. Intente nuevamente: ")
+
+def gestionar_productos():
+    while True:
+        respuesta_productos = input("\n1. Agregar producto\n2. Ver productos\n3. Buscar productos\n4. Editar producto\n5. Eliminar producto\n0. Volver al inicio\n").strip()
+        if respuesta_productos == "1":
+            agregar_producto()
+        elif respuesta_productos == "2":
+            ver_productos()
+        elif respuesta_productos == "3":
+            buscar_producto()
+        elif respuesta_productos == "4":
+            editar_producto()
+        elif respuesta_productos == "5":
+            eliminar_producto()
+        elif respuesta_productos == "0":
+            return
+        else: 
+            print("Opción inválida. Intente nuevamente: ")
+
+def registrar_producto(db, data):
+    sql = "INSERT INTO PRODUCTOS (NOMBRE, PRECIO, STOCK) VALUES (?, ?, ?)"
+    db.ejecutar(sql, (data["nombre"], data["precio"], data["stock"]))
+
+def agregar_producto():
+    nombre = input("\nEscriba el nombre del producto ó (0) para cancelar: ").strip()
+    if nombre == "0":
+        return
+
+    precio = pedir_precio("Ingrese el precio del producto: ")
+    stock = pedir_entero("Ingrese el stock inicial: ", minimo=0)
+
+    data = {"nombre": nombre, "precio": precio, "stock": stock}
+    registrar_producto(db, data)
+    print("✔ Producto registrado correctamente.")
+    return
+
+def ver_productos():
+    print("")
+    productos = db.obtener_todos(''' SELECT * FROM PRODUCTOS ''')
+    imprimir_productos(productos)
+    return
+
+def buscar_producto():
+    criterio = input("Ingrese el producto a buscar ó (0) para cancelar: ").strip()
+    if criterio == "0":
+        return
+    
+    criterios = criterio.lower().split()
+    if not criterios:
+        print("Debe ingresar al menos una palabra clave.")
+        return buscar_producto()
+
+    where_clauses = ["LOWER(NOMBRE) LIKE ?"] * len(criterios)
+    params = [f"%{p}%" for p in criterios]
+    query = f"SELECT * FROM PRODUCTOS WHERE {' OR '.join(where_clauses)}"
+    productos = db.obtener_todos(query, params)
+
+    resultados = [
+        (prod, sum(1 for palabra in criterios if palabra in prod[1].lower()))
+        for prod in productos
+    ]
+    resultados.sort(key=lambda x: x[1], reverse=True)
+
+    if resultados:
+        print(f"\nResultados para: '{criterio}'")
+        productos_ordenados = [p for p, _ in resultados]
+        imprimir_productos(productos_ordenados)
+    else:
+        print("No se encontraron productos.")
+
+    return
+
+def actualizar_producto(db, codigo, campo, valor):
+    db.ejecutar(f"UPDATE PRODUCTOS SET {campo} = ? WHERE CODIGO = ?", (valor, codigo))
+
+def editar_producto():
+    while True:
+        codigo = input("\nIngrese el código del producto que desea editar, ingrese (*) para ver el listado ó ingrese (0) para cancelar: ").strip()
+        if codigo == "*":
+            ver_productos()
+            continue
+        if codigo == "0":
+            return
+        if not codigo.isdigit():
+            print("Código inválido.")
+            continue
+
         codigo = int(codigo)
-        cursor.execute(''' DELETE FROM PRODUCTOS WHERE CODIGO = {}'''.format(codigo))
-        conexion.commit()
+        producto = db.obtener_uno("SELECT * FROM PRODUCTOS WHERE CODIGO = ?", (codigo,))
+        if not producto:
+            print("Producto no encontrado.")
+            continue
+
+        print(f"Producto seleccionado: ")
+        imprimir_producto(producto)
         break
-    gestionar_productos()
+
+    campos = {
+        "1": ("NOMBRE", lambda: input("Ingrese el nuevo nombre: ").strip()),
+        "2": ("PRECIO", lambda: pedir_precio("Ingrese el nuevo precio: "))}
+
+    while True:
+        opcion = input("\n¿Desea editar el nombre (1), el precio (2) ó cancelar (0)? ").strip()
+        if opcion == "0":
+            return
+        if opcion in campos:
+            campo, get_valor = campos[opcion]
+            valor = get_valor()
+            actualizar_producto(db, codigo, campo, valor)
+            print(f"✔ {campo} actualizado.")
+            break
+        else:
+            print("Opción inválida.")
+
+    return
+
+def eliminar_producto_db(db, codigo):
+    db.ejecutar("DELETE FROM PRODUCTOS WHERE CODIGO = ?", (codigo,))
+
+def eliminar_producto():
+    while True:
+        codigo = input("\nIngrese el código del producto que desea eliminar, ingrese (*) para ver el listado ó ingrese (0) para cancelar: ").strip()
+        if codigo == "*":
+            ver_productos()
+            continue
+        if codigo == "0":
+            print("Eliminación cancelada.")
+            return gestionar_productos()
+        if not codigo.isdigit():
+            print("Código inválido.")
+            continue
+
+        codigo = int(codigo)
+        producto = db.obtener_uno("SELECT * FROM PRODUCTOS WHERE CODIGO = ?", (codigo,))
+        if not producto:
+            print("Producto no encontrado.")
+            continue
+
+        print(f"Producto seleccionado: {imprimir_producto(producto)}")
+
+        confirmacion = pedir_confirmacion("¿Está seguro que desea eliminar este producto? (si/no): ")
+        if confirmacion == "si":
+            eliminar_producto_db(db, codigo)
+            print("✔ Producto eliminado.")
+            return
+        else:
+            print("Eliminación cancelada.")
+        return
 
 def gestionar_inventario():
-    respuesta_inventario = input("\n1. Abrir inventario\n2. Ingresar compra\n9. Volver al inicio\n")
-    try:
-        respuesta_inventario = int(respuesta_inventario)
-    except ValueError:
-        print("Elección inválida. Intente nuevamente: ")
-        gestionar_inventario()
-    if respuesta_inventario == 1:
-        abrir_inventario()
-    elif respuesta_inventario == 2:
-        ingresar_compra()
-    elif respuesta_inventario == 9:
-        inicio()
-    else: gestionar_inventario()
+    while True:
+        respuesta_inventario = input("\n1. Abrir inventario\n2. Ingresar compra\n0. Volver al inicio\n").strip()
+        if respuesta_inventario == "1":
+            abrir_inventario()
+        elif respuesta_inventario == "2":
+            ingresar_compra()
+        elif respuesta_inventario == "3":
+            editar_inventario()
+        elif respuesta_inventario == "0":
+            return
+        else:
+             print("Opción inválida. Intente nuevamente: ")
 
 def generar_reportes():
-    respuesta_reportes = input("\n1. Generar reporte de consumos diarios\n2. Generar reporte de consumos pendientes\n3. Generar reporte de consumos cerrados\n4. Generar reporte de pronto checkin\n9. Volver al inicio\n")
-    try:
-        respuesta_reportes = int(respuesta_reportes)
-    except ValueError:
-        print("Elección inválida. Intente nuevamente: ")
-        generar_reportes()
-    if respuesta_reportes == 1:
-        reporte_diario()
-    elif respuesta_reportes == 2:
-        reporte_pendientes()
-    elif respuesta_reportes == 3:
-        reporte_cerrados()
-    elif respuesta_reportes == 4:
-        reporte_pronto_checkin()
-    elif respuesta_reportes == 9:
-        inicio()
-    else: generar_reportes()
+    while True:
+        respuesta_reportes = input("\n1. Generar reporte de consumos diarios\n2. Generar reporte de consumos pendientes\n3. Generar reporte de consumos cerrados\n4. Generar reporte de pronto checkin\n0. Volver al inicio\n").strip()
+        if respuesta_reportes == "1":
+            reporte_diario()
+        elif respuesta_reportes == "2":
+            reporte_pendientes()
+        elif respuesta_reportes == "3":
+            reporte_cerrados()
+        elif respuesta_reportes == "4":
+            reporte_pronto_checkin()
+        elif respuesta_reportes == "0":
+            return
+        else:
+            print("Opción inválida. Intente nuevamente: ")
 
 
 ###INTERFAZ GRAFICA###
@@ -837,7 +669,11 @@ def generar_reportes():
 
 ### PROGRAMA ###
 
-print("Bienvenido al sistema de gestión de la posada Onda de mar 1.0 (Demo)")
-productos_existe()
-huespedes_existe()
-inicio()
+try:
+    print("Bienvenido al sistema de gestión de la posada Onda de mar 1.1 (Demo)")
+    productos_existe()
+    huespedes_existe()
+    inicio()
+finally:
+    db.cerrar()
+    print("Conexión a la base de datos cerrada.")
