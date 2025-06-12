@@ -416,7 +416,7 @@ def editar_huesped():
 "1": ("APELLIDO", lambda: unidecode(input("Ingrese el nuevo apellido: ").strip())),
 "2": ("NOMBRE", lambda: unidecode(input("Ingrese el nuevo nombre: ").strip())),
 "3": ("TELEFONO", lambda: pedir_entero("Ingrese el nuevo whatsapp de contacto: ", minimo=10000000000)),
-"4": ("EMAIL", lambda: pedir_mail),
+"4": ("EMAIL", lambda: pedir_mail()),
 "5": ("BOOKING", lambda: pedir_confirmacion("¿Es una reserva de Booking? si/no ")),
 "6": ("CHECKIN", lambda: pedir_fecha_valida("Ingrese la nueva fecha de checkin (DD-MM-YYYY): ")),
 "7": ("CHECKOUT", lambda: pedir_fecha_valida("Ingrese la nueva fecha de checkout (DD-MM-YYYY): ")),
@@ -579,7 +579,6 @@ def editar_producto():
             print("Producto no encontrado.")
             continue
 
-        print(f"Producto seleccionado: ")
         imprimir_producto(producto)
         break
 
@@ -677,7 +676,6 @@ def generar_reportes():
             return
         else:
             print("Opción inválida. Intente nuevamente: ")
-
 
 ###INTERFAZ GRAFICA###
 
