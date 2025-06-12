@@ -2,6 +2,8 @@
 
 #Cargar productos al huesped
 
+#Inventario
+
 #producir_informes()
 #Generar reporte de huéspedes en estado ABIERTO
 #Generar reporte de huéspedes en estado A LA ESPERA cuya fecha de checkin sea el día siguiente
@@ -413,8 +415,8 @@ def editar_huesped():
     campos = {
 "1": ("APELLIDO", lambda: unidecode(input("Ingrese el nuevo apellido: ").strip())),
 "2": ("NOMBRE", lambda: unidecode(input("Ingrese el nuevo nombre: ").strip())),
-"3": ("TELEFONO", pedir_entero("Ingrese el nuevo whatsapp de contacto: ", minimo=10000000000)),
-"4": ("EMAIL", pedir_mail),
+"3": ("TELEFONO", lambda: pedir_entero("Ingrese el nuevo whatsapp de contacto: ", minimo=10000000000)),
+"4": ("EMAIL", lambda: pedir_mail),
 "5": ("BOOKING", lambda: pedir_confirmacion("¿Es una reserva de Booking? si/no ")),
 "6": ("CHECKIN", lambda: pedir_fecha_valida("Ingrese la nueva fecha de checkin (DD-MM-YYYY): ")),
 "7": ("CHECKOUT", lambda: pedir_fecha_valida("Ingrese la nueva fecha de checkout (DD-MM-YYYY): ")),
@@ -622,7 +624,8 @@ def eliminar_producto():
             print("Producto no encontrado.")
             continue
 
-        print(f"Producto seleccionado: {imprimir_producto(producto)}")
+        print(f"Producto seleccionado: ")
+        imprimir_producto(producto)
 
         confirmacion = pedir_confirmacion("¿Está seguro que desea eliminar este producto? (si/no): ")
         if confirmacion == "si":
@@ -635,7 +638,7 @@ def eliminar_producto():
 
 def gestionar_inventario():
     while True:
-        respuesta_inventario = input("\n1. Abrir inventario\n2. Ingresar compra\n0. Volver al inicio\n").strip()
+        respuesta_inventario = input("\n1. Abrir inventario\n2. Ingresar compra\n3. Editar inventario\n0. Volver al inicio\n").strip()
         if respuesta_inventario == "1":
             abrir_inventario()
         elif respuesta_inventario == "2":
@@ -646,6 +649,18 @@ def gestionar_inventario():
             return
         else:
              print("Opción inválida. Intente nuevamente: ")
+
+def abrir_inventario():
+    #Esta función debe imprimir el nombre de cada producto y su respectivo stock.
+    return
+
+def ingresar_compra():
+    #Esta función se encargará de aumentar en una cantidad específica, los productos que sean seleccionados.
+    return
+
+def editar_inventario():
+    #Esta función debe permitir modificar el stock de un producto particular que será escogido por el usuario.
+    return
 
 def generar_reportes():
     while True:
