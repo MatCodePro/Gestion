@@ -667,6 +667,7 @@ def reporte_cerrados():
     huespedes = db.obtener_todos("SELECT * FROM HUESPEDES WHERE ESTADO = CERRADO")
     imprimir_huespedes(huespedes)
 
+
 ###INTERFAZ GRAFICA###
 
 
