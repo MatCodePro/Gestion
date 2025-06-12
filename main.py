@@ -56,7 +56,7 @@ def imprimir_huesped(huesped):
     for col, val in zip(columnas, huesped):
         if col in ("CHECKIN", "CHECKOUT"):
             val = formatear_fecha(val)
-        print(f"{col}: {val}")
+        print(f"{col:<15}: {val}")
     print("-" * 40)
 
 def imprimir_huespedes(huespedes):
@@ -66,7 +66,7 @@ def imprimir_huespedes(huespedes):
         for col, val in zip(columnas, huesped):
             if col in ("CHECKIN", "CHECKOUT"):
                 val = formatear_fecha(val)
-            print(f"{col}: {val}")
+            print(f"{col:<15}: {val}")
         print("-" * 40)
 
 def pedir_fecha_valida(mensaje):
@@ -663,6 +663,9 @@ def generar_reportes():
         else:
             print("Opción inválida. Intente nuevamente: ")
 
+def reporte_cerrados():
+    huespedes = db.obtener_todos("SELECT * FROM HUESPEDES WHERE ESTADO = CERRADO")
+    imprimir_huespedes(huespedes)
 
 ###INTERFAZ GRAFICA###
 
