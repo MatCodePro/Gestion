@@ -1,14 +1,6 @@
 #TODO:
 
-#Cargar productos al huesped
-
-#Inventario
-
-#producir_informes()
-#Generar reporte de huéspedes en estado ABIERTO
-#Generar reporte de huéspedes en estado A LA ESPERA cuya fecha de checkin sea el día siguiente
-
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import sqlite3
 from unidecode import unidecode
 import re
@@ -25,11 +17,11 @@ class DBManager:
         self.cursor.execute(query, params)
         self.conn.commit()
 
-    def obtener_uno(self, query, params=()): # Renamed from 'uno'
+    def obtener_uno(self, query, params=()):
         self.cursor.execute(query, params)
         return self.cursor.fetchone()
 
-    def obtener_todos(self, query, params=()): # Renamed from 'todos'
+    def obtener_todos(self, query, params=()):
         self.cursor.execute(query, params)
         return self.cursor.fetchall()
 
@@ -46,11 +38,12 @@ db = DBManager()
 
 def productos_existe():
     db.ejecutar('''CREATE TABLE IF NOT EXISTS PRODUCTOS(CODIGO INTEGER PRIMARY KEY AUTOINCREMENT, NOMBRE TEXT, PRECIO REAL, STOCK INTEGER)''')
-    #cursor.execute('''CREATE TABLE IF NOT EXISTS PRODUCTOS(CODIGO INTEGER PRIMARY KEY AUTOINCREMENT, NOMBRE TEXT, PRECIO REAL, STOCK INTEGER)''')
 
 def huespedes_existe():
     db.ejecutar('''CREATE TABLE IF NOT EXISTS HUESPEDES(NUMERO INTEGER PRIMARY KEY AUTOINCREMENT, APELLIDO TEXT, NOMBRE TEXT, TELEFONO INTEGER, EMAIL TEXT, BOOKING TEXT, ESTADO TEXT, CHECKIN TEXT, CHECKOUT TEXT, DOCUMENTO INTEGER, NACIMIENTO INTEGER, HABITACION INTEGER, CONTINGENTE INTEGER, REGISTRO TEXT)''')
-    #cursor.execute('''CREATE TABLE IF NOT EXISTS HUESPEDES(NUMERO INTEGER PRIMARY KEY AUTOINCREMENT, APELLIDO TEXT, NOMBRE TEXT, TELEFONO INTEGER, EMAIL TEXT, BOOKING TEXT, ESTADO TEXT, CHECKIN TEXT, CHECKOUT TEXT, DOCUMENTO INTEGER, NACIMIENTO INTEGER, HABITACION INTEGER, CONTINGENTE INTEGER, REGISTRO TEXT)''')
+
+def consumos_existe():
+    db.ejecutar('''CREATE TABLE IF NOT EXISTS CONSUMOS(ID INTEGER PRIMARY KEY AUTOINCREMENT, HUESPED INTEGER, PRODUCTO INTEGER, CANTIDAD INTEGER, FECHA TEXT, FOREIGN KEY (HUESPED) REFERENCES HUESPEDES(NUMERO), FOREIGN KEY (PRODUCTO) REFERENCES PRODUCTOS(CODIGO)''')
 
 def imprimir_huesped(huesped):
     print(f"\nHuésped seleccionado:")
@@ -58,17 +51,16 @@ def imprimir_huesped(huesped):
     for col, val in zip(columnas, huesped):
         if col in ("CHECKIN", "CHECKOUT"):
             val = formatear_fecha(val)
-        print(f"{col}: {val}")
+        print(f"{col:<15}: {val}")
     print("-" * 40)
 
 def imprimir_huespedes(huespedes):
     columnas = ["NUMERO", "APELLIDO", "NOMBRE", "TELEFONO", "EMAIL", "BOOKING", "ESTADO", "CHECKIN", "CHECKOUT", "DOCUMENTO", "NACIMIENTO", "HABITACION", "CONTINGENTE", "REGISTRO"]
-    print("\nListado de huéspedes:\n")
     for huesped in huespedes:
         for col, val in zip(columnas, huesped):
             if col in ("CHECKIN", "CHECKOUT"):
                 val = formatear_fecha(val)
-            print(f"{col}: {val}")
+            print(f"{col:<15}: {val}")
         print("-" * 40)
 
 def pedir_fecha_valida(mensaje):
@@ -137,7 +129,7 @@ def imprimir_producto(producto):
     columnas = ["CODIGO", "NOMBRE", "PRECIO", "STOCK"]
     print("\nProducto seleccionado:")
     for col, val in zip(columnas, producto):
-        print(f"{col}: {val}")
+        print(f"{col:<15}: {val}")
     print("-" * 40)
 
 def imprimir_productos(productos):
@@ -145,12 +137,12 @@ def imprimir_productos(productos):
     print("\nListado de productos:\n")
     for producto in productos:
         for col, val in zip(columnas, producto):
-            print(f"{col}: {val}")
+            print(f"{col:<15}: {val}")
         print("-" * 40)
 
 def inicio():
     while True:
-        respuesta_home = input("\n¿Qué desea hacer?:\n1. Gestionar de huéspedes\n2. Gestionar de consumos\n3. Gestionar de productos\n4. Gestionar de inventario\n5. Generar reportes\n0. Cerrar").strip()
+        respuesta_home = input("\n¿Qué desea hacer?:\n1. Gestionar de huéspedes\n2. Gestionar de consumos\n3. Gestionar de productos\n4. Gestionar de inventario\n5. Generar reportes\n0. Cerrar\n").strip()
         if respuesta_home == "0":
             return
         if respuesta_home == "1":
@@ -283,6 +275,7 @@ def buscar_huesped():
                 huespedes = db.obtener_todos(query, (valor,))
 
             if huespedes:
+                print("\nListado de huéspedes:\n")
                 imprimir_huespedes(huespedes)
             else:
                 print("No se encontraron coincidencias.")
@@ -482,10 +475,193 @@ def gestionar_consumos():
             agregar_consumo()
         elif respuesta_consumos == "2":
             ver_consumos()
+        elif respuesta_consumos == "3":
+            eliminar_consumos()
         elif respuesta_consumos == "0":
             return
         else: 
             print("Opción inválida. Intente nuevamente: ")
+
+def agregar_consumo():
+    while True:
+        habitacion = input("Ingrese el número de habitación ó (0) para cancelar: ").strip()
+        if habitacion == "0":
+            return gestionar_consumos()
+        if not habitacion.isdigit():
+            print("Número inválido.")
+            continue
+
+        habitacion = int(habitacion)
+        huesped = db.obtener_uno("SELECT * FROM HUESPEDES WHERE HABITACION = ? AND ESTADO = 'ABIERTO'", (habitacion,))
+        if huesped is None:
+            print("❌ No se encontró un huésped ABIERTO en esa habitación.")
+            continue
+
+        imprimir_huesped(huesped)
+        break
+
+    consumos_agregados = []
+
+    while True:
+        codigo = input("Ingrese el CÓDIGO del producto consumido, (*) para buscar ó (0) para finalizar: ").strip()
+        if codigo == "0":
+            break
+        elif codigo == "*":
+            productos = db.obtener_todos("SELECT * FROM PRODUCTOS WHERE STOCK > 0")
+            if not productos:
+                print("No hay productos en stock.")
+                return
+            else:
+                imprimir_productos(productos)
+                continue
+        elif not codigo.isdigit():
+            print("Código inválido")
+            continue
+
+        codigo = int(codigo)
+        producto = db.obtener_uno("SELECT * FROM PRODUCTOS WHERE CODIGO = ?", (codigo,))
+        if not producto:
+            print("❌ Producto no encontrado.")
+            continue
+
+        _, nombre, precio, stock = producto
+        print(f"Producto seleccionado: {nombre} (Stock: {stock})")
+
+        while True:
+            cantidad = pedir_entero("Ingrese la cantidad consumida ó (0) para cancelar: ", minimo=0)
+            if cantidad == 0:
+                return
+            elif cantidad > stock:
+                print(f"❌ No hay suficiente stock. Disponibles: {stock}")
+                continue
+            else:
+                break
+
+        fecha = datetime.now().isoformat(sep=" ", timespec="seconds")
+        db.ejecutar("INSERT INTO CONSUMOS (HUESPED, PRODUCTO, CANTIDAD, FECHA) VALUES (?, ?, ?, ?)",
+                    (huesped[0], codigo, cantidad, fecha))  # huesped[0] = NUMERO
+
+        consumo_id = db.cursor.lastrowid
+        consumos_agregados.append((consumo_id, fecha, codigo, nombre, cantidad))  # Incluye PRODUCTO_ID
+
+        nuevo_stock = stock - cantidad
+        db.ejecutar("UPDATE PRODUCTOS SET STOCK = ? WHERE CODIGO = ?", (nuevo_stock, codigo))
+
+        print(f"✔ Se registró el consumo de {cantidad} unidad(es) de '{nombre}' para {huesped[2]} {huesped[1]}, de la habitación {habitacion}.")
+    
+    if consumos_agregados:
+        respuesta = pedir_confirmacion("\n¿Desea eliminar alguno de los consumos recién agregados? (si/no): ")
+        if respuesta in ("si", "s"):
+            editar_consumos(consumos_agregados)
+
+    return gestionar_consumos()
+
+def ver_consumos():
+    while True:
+        habitacion = input("Ingrese el número de habitación para ver sus consumos, (*) para buscar ó (0) para cancelar: ").strip()
+        if habitacion == "0":
+            return gestionar_consumos()
+        if habitacion == "*":
+            buscar_huesped()
+            continue
+        if not habitacion.isdigit():
+            print("Número inválido.")
+            continue
+
+        habitacion = int(habitacion)
+        huesped = db.obtener_uno("SELECT * FROM HUESPEDES WHERE HABITACION = ?", (habitacion,))
+        if huesped is None:
+            print("❌ Habitación no encontrada.")
+            continue
+
+        imprimir_huesped(huesped)
+
+        query = """SELECT C.ID, C.FECHA, C.PRODUCTO, P.NOMBRE, C.CANTIDAD FROM CONSUMOS C JOIN PRODUCTOS P ON C.PRODUCTO = P.CODIGO WHERE C.HUESPED = ? ORDER BY C.FECHA DESC"""
+        consumos = db.obtener_todos(query, (huesped[0],))
+
+        if consumos:
+            print(f"\nHistorial de consumos de la habitación {huesped[11]}, huésped {huesped[2]} {huesped[1]}:\n")
+            print(f"{'#':<3} {'FECHA':<12} {'PRODUCTO':<30} {'CANTIDAD':<10}")
+            print("-" * 60)
+            for idx, (consumo_id, fecha, producto_id, producto_nombre, cantidad) in enumerate(consumos, start=1):
+                print(f"{idx:<3} {fecha:<12} {producto_nombre:<30} {cantidad:<10}")
+        else:
+            print("Esta habitación no tiene consumos registrados.")
+        return
+
+def eliminar_consumos():
+    while True:
+        habitacion = input("Ingrese el número de habitación para eliminar consumos, (*) para buscar ó (0) para cancelar: ").strip()
+        if habitacion == "0":
+            return gestionar_consumos()
+        if habitacion == "*":
+            buscar_huesped()
+            continue
+        if not habitacion.isdigit():
+            print("Número inválido.")
+            continue
+
+        habitacion = int(habitacion)
+        huesped = db.obtener_uno("SELECT * FROM HUESPEDES WHERE HABITACION = ?", (habitacion,))
+        if huesped is None:
+            print("❌ Habitación no encontrada.")
+            continue
+
+        imprimir_huesped(huesped)
+
+        query = """ SELECT C.ID, C.FECHA, C.PRODUCTO, P.NOMBRE, C.CANTIDAD FROM CONSUMOS C JOIN PRODUCTOS P ON C.PRODUCTO = P.CODIGO WHERE C.HUESPED = ? ORDER BY C.FECHA DESC"""
+        consumos = db.obtener_todos(query, (huesped[0],))
+
+        if not consumos:
+            print("Esta habitación no tiene consumos registrados.")
+            return gestionar_consumos()
+
+        print(f"\nConsumos de la habitación {huesped[11]}, huésped {huesped[2]} {huesped[1]}:\n")
+        print(f"{'#':<3} {'FECHA':<12} {'PRODUCTO':<30} {'CANTIDAD':<10}")
+        print("-" * 60)
+        for idx, (consumo_id, fecha, producto_id, producto_nombre, cantidad) in enumerate(consumos, start=1):
+            print(f"{idx:<3} {fecha:<12} {producto_nombre:<30} {cantidad:<10}")
+
+        editar_consumos(consumos)
+        return gestionar_consumos()
+
+def editar_consumos(lista_consumos):
+    """
+    Recibe una lista de tuplas (ID, FECHA, PRODUCTO, NOMBRE, CANTIDAD) y permite eliminar por índice.
+    Restaura el stock al producto correspondiente.
+    """
+    indices_validos = list(range(1, len(lista_consumos)+1))
+    seleccion = input("Ingrese el/los número(s) de consumo a eliminar separados por coma (ej: 1,3): ").strip()
+    seleccion = seleccion.split(",")
+
+    a_eliminar = []
+    for item in seleccion:
+        item = item.strip()
+        if item.isdigit():
+            idx = int(item)
+            if idx in indices_validos:
+                a_eliminar.append(idx - 1)
+            else:
+                print(f"Índice fuera de rango: {idx}")
+        else:
+            print(f"Entrada inválida: {item}")
+
+    for i in a_eliminar:
+        consumo_id, _, producto_id, producto_nombre, cantidad = lista_consumos[i]
+
+        # Obtener código del producto
+        producto = db.obtener_uno("SELECT STOCK FROM PRODUCTOS WHERE CODIGO = ?", (producto_id,))
+        if producto:
+            stock_actual = producto[0]
+            stock_nuevo = stock_actual + cantidad
+            db.ejecutar("UPDATE PRODUCTOS SET STOCK = ? WHERE CODIGO = ?", (stock_nuevo, producto_id))
+            print(f"✔ Stock de '{producto_nombre}' restaurado.")
+        else:
+            print(f"⚠ Producto '{producto_nombre}' (ID: {producto_id}) no encontrado. No se restauró el stock.")
+
+        # Eliminar consumo
+        db.ejecutar("DELETE FROM CONSUMOS WHERE ID = ?", (consumo_id,))
+        print(f"✔ Consumo #{i+1} eliminado y stock de '{producto_nombre}' restaurado.")
 
 def gestionar_productos():
     while True:
@@ -650,24 +826,87 @@ def gestionar_inventario():
              print("Opción inválida. Intente nuevamente: ")
 
 def abrir_inventario():
-    #Esta función debe imprimir el nombre de cada producto y su respectivo stock.
-    return
+    productos = db.obtener_todos("SELECT * FROM PRODUCTOS ORDER BY NOMBRE")
+    if not productos:
+        print("No hay productos cargados.")
+        return gestionar_inventario()
+
+    print("\n📦 Inventario actual:")
+    print(f"{'CÓDIGO':<7} {'NOMBRE':<30} {'STOCK':<10}")
+    print("-" * 50)
+    for codigo, nombre, precio, stock in productos:
+        print(f"{codigo:<7} {nombre:<30} {stock:<10}")
+    
+    return gestionar_inventario()
 
 def ingresar_compra():
-    #Esta función se encargará de aumentar en una cantidad específica, los productos que sean seleccionados.
-    return
+    productos = db.obtener_todos("SELECT * FROM PRODUCTOS ORDER BY NOMBRE")
+    if not productos:
+        print("No hay productos cargados.")
+        return gestionar_inventario()
+
+    imprimir_productos(productos)
+
+    while True:
+        codigo = input("Ingrese el CÓDIGO del producto comprado ó (0) para cancelar: ").strip()
+        if codigo == "0":
+            return gestionar_inventario()
+        if not codigo.isdigit():
+            print("Código inválido.")
+            continue
+
+        codigo = int(codigo)
+        producto = db.obtener_uno("SELECT * FROM PRODUCTOS WHERE CODIGO = ?", (codigo,))
+        if not producto:
+            print("Producto no encontrado.")
+            continue
+
+        _, nombre, _, stock = producto
+        cantidad = pedir_entero(f"Ingrese la cantidad comprada de '{nombre}': ", minimo=1)
+        nuevo_stock = stock + cantidad
+        db.ejecutar("UPDATE PRODUCTOS SET STOCK = ? WHERE CODIGO = ?", (nuevo_stock, codigo))
+        if cantidad == 1:
+            print(f"✔ Se aumentó {cantidad} unidad el stock de '{nombre}' (Nuevo stock: {nuevo_stock}).")
+        else:
+            print(f"✔ Se aumentó {cantidad} unidades el stock de '{nombre}' (Nuevo stock: {nuevo_stock}).")
+        return gestionar_inventario()
 
 def editar_inventario():
-    #Esta función debe permitir modificar el stock de un producto particular que será escogido por el usuario.
-    return
+    productos = db.obtener_todos("SELECT * FROM PRODUCTOS ORDER BY NOMBRE")
+    if not productos:
+        print("No hay productos cargados.")
+        return gestionar_inventario()
+
+    imprimir_productos(productos)
+
+    while True:
+        codigo = input("Ingrese el CÓDIGO del producto a modificar ó (0) para cancelar: ").strip()
+        if codigo == "0":
+            return gestionar_inventario()
+        if not codigo.isdigit():
+            print("Código inválido.")
+            continue
+
+        codigo = int(codigo)
+        producto = db.obtener_uno("SELECT * FROM PRODUCTOS WHERE CODIGO = ?", (codigo,))
+        if not producto:
+            print("Producto no encontrado.")
+            continue
+
+        _, nombre, _, stock = producto
+        nuevo_stock = pedir_entero(f"Ingrese el nuevo stock de '{nombre}': ", minimo=0)
+        db.ejecutar("UPDATE PRODUCTOS SET STOCK = ? WHERE CODIGO = ?", (nuevo_stock, codigo))
+
+        print(f"✔ Stock actualizado para '{nombre}'. Nuevo stock: {nuevo_stock}.")
+        return gestionar_inventario()
 
 def generar_reportes():
     while True:
-        respuesta_reportes = input("\n1. Generar reporte de consumos diarios\n2. Generar reporte de consumos pendientes\n3. Generar reporte de consumos cerrados\n4. Generar reporte de pronto checkin\n0. Volver al inicio\n").strip()
+        respuesta_reportes = input("\n1. Generar reporte de consumos diarios\n2. Generar reporte de pasajeros abiertos\n3. Generar reporte de pasajeros cerrados\n4. Generar reporte de pronto checkin\n0. Volver al inicio\n").strip()
         if respuesta_reportes == "1":
             reporte_diario()
         elif respuesta_reportes == "2":
-            reporte_pendientes()
+            reporte_abiertos()
         elif respuesta_reportes == "3":
             reporte_cerrados()
         elif respuesta_reportes == "4":
@@ -676,6 +915,89 @@ def generar_reportes():
             return
         else:
             print("Opción inválida. Intente nuevamente: ")
+
+def reporte_diario():
+    hoy = date.today().isoformat()
+
+    query = """SELECT H.HABITACION, H.NOMBRE, H.APELLIDO, C.FECHA, P.NOMBRE, C.CANTIDAD FROM CONSUMOS C JOIN HUESPEDES H ON C.HUESPED = H.NUMERO JOIN PRODUCTOS P ON C.PRODUCTO = P.CODIGO WHERE C.FECHA = ? ORDER BY H.HABITACION, C.FECHA"""
+
+    consumos = db.obtener_todos(query, (hoy,))
+
+    if not consumos:
+        print(f"No se registraron consumos en la fecha de hoy ({date.today().strftime('%d-%m-%Y')}).")
+        return
+
+    print(f"\nConsumos registrados hoy ({date.today().strftime('%d-%m-%Y')}):\n")
+
+    habitacion_actual = None
+    for habitacion, nombre, apellido, fecha, producto, cantidad in consumos:
+        if habitacion != habitacion_actual:
+            habitacion_actual = habitacion
+            print(f"\nHabitación {habitacion} - Huésped: {nombre} {apellido}")
+
+        hora = fecha[11:16] if "T" in fecha or " " in fecha else "--:--"
+        print(f"  - {hora} {producto} (x{cantidad})")
+
+    print()
+
+def reporte_abiertos():
+    query = "SELECT * FROM HUESPEDES WHERE ESTADO = ?"
+    huespedes = db.obtener_todos(query, ("ABIERTO",))
+    if huespedes:
+        print(f"\nHuéspedes abiertos:\n")
+        imprimir_huespedes(huespedes)
+        return
+    else:
+        print("No se hayaron huéspedes abiertos\n")
+        return
+
+def reporte_cerrados():
+    while True:
+        fecha_str = input("Ingrese una fecha para generar el reporte, o deje vacío para el día de la fecha: ")
+        if fecha_str:
+            try:
+                fecha = datetime.strptime(fecha_str, "%d-%m-%Y").date()
+                break
+            except ValueError:
+                print("❌ Fecha inválida. Use el formato DD-MM-YYYY.")
+                continue
+        else:
+            fecha = date.today()
+            break
+    fecha_iso = fecha.isoformat()
+    query = "SELECT * FROM HUESPEDES WHERE ESTADO = 'CERRADO' AND CHECKOUT = ?"
+    huespedes = db.obtener_todos(query, (fecha_iso,))
+
+    if huespedes:
+        print(f"\nHuéspedes cerrados el {fecha.strftime('%d-%m-%Y')}:\n")
+        imprimir_huespedes(huespedes)
+        return
+    else:
+        query_abiertos = "SELECT * FROM HUESPEDES WHERE ESTADO = 'ABIERTO' AND CHECKOUT <= ?"
+        abiertos = db.obtener_todos(query_abiertos, (fecha_iso,))
+
+        if abiertos:
+            respuesta = pedir_confirmacion("¡¡¡ Atención !!!\nNo se encontraron huéspedes cerrados pero HAY HUÉSPEDES CON CHECKOUT VENCIDO\n¿Desea verlos? (si/no): ")
+            if respuesta in ("si", "s"):
+                print("\nHuéspedes con checkout vencido:\n")
+                imprimir_huespedes(abiertos)
+        else:
+            print("No se hayaron huéspedes cerrados el día de hoy")
+
+def reporte_pronto_checkin():
+    manana = date.today() + timedelta(days=1)
+    manana_iso = manana.isoformat()
+
+    query = "SELECT * FROM HUESPEDES WHERE ESTADO = 'PROGRAMADO' AND CHECKIN = ?"
+    huespedes = db.obtener_todos(query, (manana_iso,))
+
+    if huespedes:
+        print(f"\nHuéspedes con check-in programado para mañana ({manana.strftime('%d-%m-%Y')}):\n")
+        imprimir_huespedes(huespedes)
+        return
+    else:
+        print(f"No hay huéspedes con check-in programado para mañana ({manana.strftime('%d-%m-%Y')}).")
+        return
 
 ###INTERFAZ GRAFICA###
 
