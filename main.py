@@ -1005,7 +1005,7 @@ def reporte_pronto_checkin():
 ### PROGRAMA ###
 
 try:
-    print("Bienvenido al sistema de gestión de la posada Onda de mar 1.1 (Demo)")
+    print("Bienvenido al sistema de gestión de la posada Onda de mar 1.0 (Demo)")
     productos_existe()
     huespedes_existe()
     inicio()
