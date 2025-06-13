@@ -1,13 +1,7 @@
 #TODO:
 
 #Guardar LOG cuando se eliminan huéspedes, eliminan productos, o cierran huéspedes.
-#Al momento de registrar un huesped, si la fecha del checkin es anterior a hoy, que lo avise pero que permita registrarlo igual
 #Hasta ahora sólo al crear huesped y cambiar estado se modifica el registro. Hacerlo en el resto de las funciones que corresponda
-#Verificar nombres y funciones de editar y eliminar consumos
-""" Funciones eliminar_consumos y editar_consumos:
-
-La función editar_consumos se llama después de mostrar todos los consumos, pero el mensaje Ingrese el/los número(s) de consumo a eliminar separados por coma (ej: 1,3): podría colocarse mejor dentro de eliminar_consumos después de que se muestre la lista, y luego editar_consumos podría ser una función auxiliar.
-La función eliminar_consumos devuelve gestionar_consumos() lo que efectivamente vuelve a entrar en el menú. Esto podría no ser el flujo más intuitivo si el usuario quiere eliminar varios elementos. La función editar_consumos maneja la eliminación real y la restauración del stock. """
 
 
 from datetime import datetime, date, timedelta
@@ -73,15 +67,23 @@ def imprimir_huespedes(huespedes):
             print(f"{col:<15}: {val}")
         print("-" * 40)
 
-def pedir_fecha_valida(mensaje):
+def pedir_fecha_valida(mensaje, allow_past=False):
     while True:
         fecha_input = input(mensaje).strip()
         try:
             fecha = datetime.strptime(fecha_input, '%d-%m-%Y').date()
-            if fecha >= date.today():
-                return fecha.isoformat()  # → 'YYYY-MM-DD'
+            if fecha < date.today():
+                if allow_past:
+                    respuesta = pedir_confirmacion("La fecha de check-in es anterior a hoy. ¿Desea registrarla de todas formas? (si/no): ")
+                    if respuesta == "si":
+                        return fecha.isoformat()
+                    else:
+                        print("Por favor, ingrese una fecha igual o posterior a hoy.")
+                        continue
+                else:
+                    print("La fecha debe ser igual o posterior a hoy.")
             else:
-                print("La fecha debe ser igual o posterior a hoy.")
+                return fecha.isoformat()  # → 'YYYY-MM-DD'
         except ValueError:
             print("Formato inválido. Use DD-MM-YYYY.")
 
@@ -188,7 +190,7 @@ def gestionar_huespedes():
         else:
             print("Opción inválida. Intente nuevamente: ")
 
-def registrar_huesped(db, data):
+def nuevo_huesped_db(db, data):
     """ Registra un nuevo huésped en la base de datos.
     `data` es un diccionario con todos los campos necesarios."""
     sql = """ INSERT INTO HUESPEDES (APELLIDO, NOMBRE, TELEFONO, EMAIL, BOOKING, ESTADO, CHECKIN, CHECKOUT, DOCUMENTO, NACIMIENTO, HABITACION, CONTINGENTE, REGISTRO) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
@@ -208,7 +210,7 @@ def nuevo_huesped():
         break
     while True:
         respuesta_nombre = input("\nEscriba el nombre del huesped ó (0) para cancelar: ").strip()
-        if nombre == "0":
+        if respuesta_nombre == "0":
             return
         if not respuesta_nombre:
             print("El nombre no puede estar vacío")
@@ -224,7 +226,7 @@ def nuevo_huesped():
         pregunta_estado = input("¿Es un huesped programado (1) ó es un checkin (2)? ").strip()
         if pregunta_estado == "1":
             estado = "PROGRAMADO"
-            checkin = pedir_fecha_valida("Ingrese la fecha de checkin (DD-MM-YYYY): ")
+            checkin = pedir_fecha_valida("Ingrese la fecha de checkin (DD-MM-YYYY): ", allow_past=True)
             checkout = pedir_fecha_valida("Ingrese la fecha de checkout en formato DD-MM-YYYY: ")
             while checkout < checkin:
                 print("La fecha de checkout no puede ser anterior al checkin.")
@@ -254,7 +256,7 @@ def nuevo_huesped():
 
     data = {"apellido": apellido, "nombre": nombre, "telefono": telefono, "email": email, "booking": booking, "estado": estado, "checkin": checkin, "checkout": checkout, "documento": documento, "nacimiento": nacimiento, "habitacion": habitacion, "contingente": contingente, "registro": registro}
 
-    registrar_huesped(db, data)
+    nuevo_huesped_db(db, data)
     print("✔ Huésped registrado correctamente.")
     return
 
@@ -329,6 +331,9 @@ def cambiar_estado():
 
         nuevo_estado = opciones[seleccion]
         hoy = date.today().isoformat()
+        registro_anterior_data = db.obtener_uno("SELECT REGISTRO FROM HUESPEDES WHERE NUMERO = ?", (numero,))
+        registro_anterior = registro_anterior_data[0] if registro_anterior_data and registro_anterior_data[0] else ""
+        separador = "\n---\n"
 
         if nuevo_estado == "PROGRAMADO":
             checkin = pedir_fecha_valida("Ingrese la nueva fecha de checkin (DD-MM-YYYY): ")
@@ -340,12 +345,10 @@ def cambiar_estado():
             nacimiento = nacimiento_data[0] if nacimiento_data and nacimiento_data[0] else ""
             if nacimiento < 1900:
                 nacimiento = pedir_entero("Ingrese el año de nacimiento: ", minimo=1900)
-
-            actualizar_huesped(db, numero, "ESTADO", nuevo_estado)
-            actualizar_huesped(db, numero, "CHECKIN", checkin)
-            actualizar_huesped(db, numero, "CHECKOUT", checkout)
-            actualizar_huesped(db, numero, "HABITACION", 0)
-            actualizar_huesped(db, numero, "NACIMIENTO", nacimiento)
+            registro_nuevo = f"Estado modificado a {nuevo_estado} - {datetime.now().isoformat(timespec='seconds')}"
+            registro = registro_anterior + separador + registro_nuevo
+            updates = {"ESTADO": nuevo_estado, "CHECKIN": checkin, "CHECKOUT": checkout, "HABITACION": 0, "NACIMIENTO": nacimiento, "REGISTRO": registro}
+            editar_huesped_db(db, numero, updates)
 
         elif nuevo_estado == "ABIERTO":
             checkin = hoy
@@ -360,38 +363,44 @@ def cambiar_estado():
 
             habitacion = pedir_entero("Ingrese el número de habitación: ", minimo=1, maximo=7)
             contingente = pedir_entero("Ingrese la cantidad de huéspedes: ", minimo=1)
+            registro_nuevo = f"Estado modificado a {nuevo_estado} - {datetime.now().isoformat(timespec='seconds')}"
+            registro = registro_anterior + separador + registro_nuevo
 
-            actualizar_huesped(db, numero, "ESTADO", nuevo_estado)
-            actualizar_huesped(db, numero, "CHECKIN", checkin)
-            actualizar_huesped(db, numero, "CHECKOUT", checkout)
-            actualizar_huesped(db, numero, "DOCUMENTO", documento)
-            actualizar_huesped(db, numero, "NACIMIENTO", nacimiento)
-            actualizar_huesped(db, numero, "HABITACION", habitacion)
-            actualizar_huesped(db, numero, "CONTINGENTE", contingente)
+            # Unificar todas las actualizaciones en un diccionario
+            updates = {"ESTADO": nuevo_estado, "CHECKIN": checkin, "CHECKOUT": checkout, "DOCUMENTO": documento, "NACIMIENTO": nacimiento, "HABITACION": habitacion, "CONTINGENTE": contingente, "REGISTRO": registro}
+            editar_huesped_db(db, numero, updates)
 
         elif nuevo_estado == "CERRADO":
             checkout = hoy
-            actualizar_huesped(db, numero, "ESTADO", nuevo_estado)
-            actualizar_huesped(db, numero, "CHECKOUT", checkout)
-            actualizar_huesped(db, numero, "HABITACION", 0)
-
-        # Actualizar el registro de historial
-        registro_anterior_data = db.obtener_uno("SELECT REGISTRO FROM HUESPEDES WHERE NUMERO = ?", (numero,))
-        registro_anterior = registro_anterior_data[0] if registro_anterior_data and registro_anterior_data[0] else ""
-        separador = "\n---\n"
-        registro_actual = f"Estado modificado a {nuevo_estado} - {datetime.now().isoformat(timespec='seconds')}"
-        nuevo_registro = registro_anterior + separador + registro_actual
-        actualizar_huesped(db, numero, "REGISTRO", nuevo_registro)
+            registro_nuevo = f"Estado modificado a {nuevo_estado} - {datetime.now().isoformat(timespec='seconds')}"
+            registro = registro_anterior + separador + registro_nuevo
+            updates = {"ESTADO": nuevo_estado, "CHECKOUT": checkout, "HABITACION": 0, "REGISTRO": registro}
+            editar_huesped_db(db, numero, updates) # Llamada única
 
         print(f"✔ Estado actualizado a {nuevo_estado}.")
         break
 
     return
 
-def actualizar_huesped(db, numero, campo, valor):
-    """Actualiza un único campo del huésped dado su número de registro."""
-    sql = f"UPDATE HUESPEDES SET {campo} = ? WHERE NUMERO = ?"
-    db.ejecutar(sql, (valor, numero))
+def editar_huesped_db(db, numero, updates_dict):
+    """
+    Actualiza uno o varios campos del huésped dado su número de registro.
+    updates_dict es un diccionario con {campo: valor}.
+    """
+    if not updates_dict:
+        return # No hay nada que actualizar si el diccionario está vacío
+
+    set_clauses = []
+    valores = []
+    for campo, valor in updates_dict.items():
+        set_clauses.append(f"{campo} = ?")
+        valores.append(valor)
+
+    # Añadir el número del huésped al final de los valores para la cláusula WHERE
+    valores.append(numero)
+
+    sql = f"UPDATE HUESPEDES SET {', '.join(set_clauses)} WHERE NUMERO = ?"
+    db.ejecutar(sql, tuple(valores))
 
 def editar_huesped():
     while True:
@@ -414,16 +423,13 @@ def editar_huesped():
         imprimir_huesped(huesped)
         break
 
-    registro_anterior_data = registro_anterior_data = db.obtener_uno("SELECT REGISTRO FROM HUESPEDES WHERE NUMERO = ?", (numero,))
-    registro_anterior = registro_anterior_data[0] if registro_anterior_data and registro_anterior_data[0] else ""
-
     campos = {
 "1": ("APELLIDO", lambda: unidecode(input("Ingrese el nuevo apellido: ").strip())),
 "2": ("NOMBRE", lambda: unidecode(input("Ingrese el nuevo nombre: ").strip())),
 "3": ("TELEFONO", lambda: pedir_entero("Ingrese el nuevo whatsapp de contacto: ", minimo=10000000000)),
 "4": ("EMAIL", lambda: pedir_mail()),
 "5": ("BOOKING", lambda: pedir_confirmacion("¿Es una reserva de Booking? si/no ")),
-"6": ("CHECKIN", lambda: pedir_fecha_valida("Ingrese la nueva fecha de checkin (DD-MM-YYYY): ")),
+"6": ("CHECKIN", lambda: pedir_fecha_valida("Ingrese la fecha de checkin (DD-MM-YYYY): ", allow_past=True)),
 "7": ("CHECKOUT", lambda: pedir_fecha_valida("Ingrese la nueva fecha de checkout (DD-MM-YYYY): ")),
 "8": ("DOCUMENTO", lambda: input("Ingrese el nuevo documento: ").strip()),
 "9": ("NACIMIENTO", lambda: pedir_entero("Ingrese el año de nacimiento: ", minimo=1900)),
@@ -440,11 +446,14 @@ def editar_huesped():
         if opcion in campos:
             campo_sql, funcion_valor = campos[opcion]
             nuevo_valor = funcion_valor()
-            actualizar_huesped(db, numero, campo_sql, nuevo_valor)
+            registro_anterior_data = db.obtener_uno("SELECT REGISTRO FROM HUESPEDES WHERE NUMERO = ?", (numero,))
+            registro_anterior = registro_anterior_data[0] if registro_anterior_data and registro_anterior_data[0] else ""
             separador = "\n---\n"
             registro_actual = f"Se modificó {campo_sql} a ´{nuevo_valor} - {datetime.now().isoformat(timespec='seconds')}"
             nuevo_registro = registro_anterior + separador + registro_actual
-            actualizar_huesped(db, numero, "REGISTRO", nuevo_registro)
+            updates = {campo_sql: nuevo_valor, "REGISTRO": nuevo_registro}
+            editar_huesped_db(db, numero, updates)
+
             print(f"✔ {campo_sql} actualizado correctamente.")
             break
         else:
@@ -598,7 +607,7 @@ def agregar_consumo():
     if consumos_agregados:
         respuesta = pedir_confirmacion("\n¿Desea eliminar alguno de los consumos recién agregados? (si/no): ")
         if respuesta in ("si", "s"):
-            editar_consumos(consumos_agregados)
+            eliminar_consumos_db(consumos_agregados)
 
     return
 
@@ -668,10 +677,10 @@ def eliminar_consumos():
         for idx, (consumo_id, fecha, producto_id, producto_nombre, cantidad) in enumerate(consumos, start=1):
             print(f"{idx:<3} {fecha:<12} {producto_nombre:<30} {cantidad:<10}")
 
-        editar_consumos(consumos)
+        eliminar_consumos_db(consumos)
         return
 
-def editar_consumos(lista_consumos):
+def eliminar_consumos_db(lista_consumos):
     """
     Recibe una lista de tuplas (ID, FECHA, PRODUCTO, NOMBRE, CANTIDAD) y permite eliminar por índice.
     Restaura el stock al producto correspondiente.
@@ -966,9 +975,9 @@ def generar_reportes():
 def reporte_diario():
     hoy = date.today().isoformat()
 
-    query = """SELECT H.HABITACION, H.NOMBRE, H.APELLIDO, C.FECHA, P.NOMBRE, C.CANTIDAD FROM CONSUMOS C JOIN HUESPEDES H ON C.HUESPED = H.NUMERO JOIN PRODUCTOS P ON C.PRODUCTO = P.CODIGO WHERE C.FECHA = ? ORDER BY H.HABITACION, C.FECHA"""
+    query = """SELECT H.HABITACION, H.NOMBRE, H.APELLIDO, C.FECHA, P.NOMBRE, C.CANTIDAD FROM CONSUMOS C JOIN HUESPEDES H ON C.HUESPED = H.NUMERO JOIN PRODUCTOS P ON C.PRODUCTO = P.CODIGO WHERE C.FECHA LIKE ? ORDER BY H.HABITACION, C.FECHA"""
 
-    consumos = db.obtener_todos(query, (hoy,))
+    consumos = db.obtener_todos(query, (f"{hoy}%",)) 
 
     if not consumos:
         print(f"No se registraron consumos en la fecha de hoy ({date.today().strftime('%d-%m-%Y')}).")
@@ -982,7 +991,7 @@ def reporte_diario():
             habitacion_actual = habitacion
             print(f"\nHabitación {habitacion} - Huésped: {nombre} {apellido}")
 
-        hora = fecha[11:16] if "T" in fecha or " " in fecha else "--:--"
+        hora = datetime.strptime(fecha, "%Y-%m-%d %H:%M:%S").strftime("%H:%M") 
         print(f"  - {hora} {producto} (x{cantidad})")
 
     print()
@@ -1055,6 +1064,7 @@ try:
     print("Bienvenido al sistema de gestión de la posada Onda de mar 1.0 (Demo)")
     productos_existe()
     huespedes_existe()
+    consumos_existe()
     inicio()
 finally:
     db.cerrar()
