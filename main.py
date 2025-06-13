@@ -1,8 +1,7 @@
 #TODO:
 
-#Guardar LOG cuando se eliminan huéspedes, eliminan consumos o cierran huéspedes.
-
-#Los al eliminar consumos
+#Para el futuro implementar cambio en class
+#Generar interfaz gráfica
 
 from datetime import datetime, date, timedelta
 import sqlite3
@@ -33,6 +32,40 @@ class DBManager:
     def cerrar(self):
         self.conn.close()
 
+""" class DBManager:
+    def __init__(self, db_path="BaseDeDatos", autocommit=True):
+        self.conn = sqlite3.connect(db_path)
+        self.cursor = self.conn.cursor()
+        self.autocommit = autocommit
+
+    def ejecutar(self, query, params=()):
+        self.cursor.execute(query, params)
+        if self.autocommit:
+            self.conn.commit()
+
+    def obtener_uno(self, query, params=()):
+        self.cursor.execute(query, params)
+        return self.cursor.fetchone()
+
+    def obtener_todos(self, query, params=()):
+        self.cursor.execute(query, params)
+        return self.cursor.fetchall()
+
+    def iniciar_transaccion(self):
+        self.conn.execute("BEGIN TRANSACTION")
+        self.autocommit = False
+
+    def finalizar_transaccion(self):
+        self.conn.commit()
+        self.autocommit = True
+
+    def revertir_transaccion(self):
+        self.conn.rollback()
+        self.autocommit = True
+
+    def cerrar(self):
+        self.conn.close() """
+
 
 ### VARIABLES GLOBALES ###
 
@@ -45,7 +78,7 @@ def productos_existe():
     db.ejecutar('''CREATE TABLE IF NOT EXISTS PRODUCTOS(CODIGO INTEGER PRIMARY KEY AUTOINCREMENT, NOMBRE TEXT, PRECIO REAL, STOCK INTEGER)''')
 
 def huespedes_existe():
-    db.ejecutar('''CREATE TABLE IF NOT EXISTS HUESPEDES(NUMERO INTEGER PRIMARY KEY AUTOINCREMENT, APELLIDO TEXT, NOMBRE TEXT, TELEFONO INTEGER, EMAIL TEXT, BOOKING TEXT, ESTADO TEXT, CHECKIN TEXT, CHECKOUT TEXT, DOCUMENTO INTEGER, NACIMIENTO INTEGER, HABITACION INTEGER, CONTINGENTE INTEGER, REGISTRO TEXT)''')
+    db.ejecutar('''CREATE TABLE IF NOT EXISTS HUESPEDES(NUMERO INTEGER PRIMARY KEY AUTOINCREMENT, APELLIDO TEXT, NOMBRE TEXT, TELEFONO INTEGER, EMAIL TEXT, BOOKING TEXT, ESTADO TEXT, CHECKIN TEXT, CHECKOUT TEXT, DOCUMENTO TEXT, NACIMIENTO INTEGER, HABITACION INTEGER, CONTINGENTE INTEGER, REGISTRO TEXT)''')
 
 def consumos_existe():
     db.ejecutar('''CREATE TABLE IF NOT EXISTS CONSUMOS(ID INTEGER PRIMARY KEY AUTOINCREMENT, HUESPED INTEGER, PRODUCTO INTEGER, CANTIDAD INTEGER, FECHA TEXT, FOREIGN KEY (HUESPED) REFERENCES HUESPEDES(NUMERO), FOREIGN KEY (PRODUCTO) REFERENCES PRODUCTOS(CODIGO))''')
@@ -66,13 +99,17 @@ def imprimir_huesped(huesped):
     print("-" * 40)
 
 def imprimir_huespedes(huespedes):
-    columnas = ["NUMERO", "APELLIDO", "NOMBRE", "TELEFONO", "EMAIL", "BOOKING", "ESTADO", "CHECKIN", "CHECKOUT", "DOCUMENTO", "NACIMIENTO", "HABITACION", "CONTINGENTE", "REGISTRO"]
-    for huesped in huespedes:
-        for col, val in zip(columnas, huesped):
-            if col in ("CHECKIN", "CHECKOUT"):
-                val = formatear_fecha(val)
-            print(f"{col:<15}: {val}")
-        print("-" * 40)
+    print(f"{'#':<3} {'NUMERO':<6} {'APELLIDO':<15} {'NOMBRE':<15} {'ESTADO':<10} {'HAB':<4} {'CHECKIN':<12} {'CHECKOUT':<12}")
+    print("-" * 80)
+    for i, h in enumerate(huespedes, start=1):
+        numero = h[0]
+        apellido = h[1]
+        nombre = h[2]
+        estado = h[6]
+        habitacion = h[11]
+        checkin = formatear_fecha(h[7])
+        checkout = formatear_fecha(h[8])
+        print(f"{i:<3} {numero:<6} {apellido:<15} {nombre:<15} {estado:<10} {habitacion:<4} {checkin:<12} {checkout:<12}")
 
 def pedir_fecha_valida(mensaje, allow_past=False):
     while True:
@@ -288,7 +325,10 @@ def buscar_huesped():
                 huespedes = db.obtener_todos("SELECT * FROM HUESPEDES")
             else:
                 valor = get_valor()
-                query = f"SELECT * FROM HUESPEDES WHERE {campo} LIKE ?" if campo == "APELLIDO" else f"SELECT * FROM HUESPEDES WHERE {campo} = ?"
+                if campo == "APELLIDO":
+                    query = f"SELECT * FROM HUESPEDES WHERE LOWER({campo}) LIKE LOWER(?)"
+                else:
+                    query = f"SELECT * FROM HUESPEDES WHERE {campo} = ?"
                 huespedes = db.obtener_todos(query, (valor,))
 
             if huespedes:
@@ -476,7 +516,7 @@ def editar_huesped():
             registro_anterior_data = db.obtener_uno("SELECT REGISTRO FROM HUESPEDES WHERE NUMERO = ?", (numero,))
             registro_anterior = registro_anterior_data[0] if registro_anterior_data and registro_anterior_data[0] else ""
             separador = "\n---\n"
-            registro_actual = f"Se modificó {campo_sql} a ´{nuevo_valor} - {datetime.now().isoformat(timespec='seconds')}"
+            registro_actual = f"Se modificó {campo_sql} a '{nuevo_valor}' - {datetime.now().isoformat(timespec='seconds')}"
             nuevo_registro = registro_anterior + separador + registro_actual
             updates = {campo_sql: nuevo_valor, "REGISTRO": nuevo_registro}
             editar_huesped_db(db, numero, updates)
@@ -648,7 +688,7 @@ def agregar_consumo():
     
     if consumos_agregados:
         respuesta = pedir_confirmacion("\n¿Desea eliminar alguno de los consumos recién agregados? (si/no): ")
-        if respuesta in ("si", "s"):
+        if respuesta == "si":
             eliminar_consumos_db(consumos_agregados)
 
     return
@@ -744,44 +784,44 @@ def eliminar_consumos_db(lista_consumos):
             print(f"Entrada inválida: {item}")
 
     for i in a_eliminar:
-    consumo_id, _, producto_id, producto_nombre, cantidad = lista_consumos[i]
+        consumo_id, _, producto_id, producto_nombre, cantidad = lista_consumos[i]
 
-    # Obtener huésped desde el consumo
-    datos_consumo = db.obtener_uno("SELECT HUESPED FROM CONSUMOS WHERE ID = ?", (consumo_id,))
-    if not datos_consumo:
-        print(f"⚠ No se pudo obtener el huésped del consumo #{consumo_id}")
-        continue
+        # Obtener huésped desde el consumo
+        datos_consumo = db.obtener_uno("SELECT HUESPED FROM CONSUMOS WHERE ID = ?", (consumo_id,))
+        if not datos_consumo:
+            print(f"⚠ No se pudo obtener el huésped del consumo #{consumo_id}")
+            continue
 
-    huesped_id = datos_consumo[0]
-    huesped_data = db.obtener_uno("SELECT NOMBRE, APELLIDO, HABITACION FROM HUESPEDES WHERE NUMERO = ?", (huesped_id,))
-    if huesped_data:
-        nombre, apellido, habitacion = huesped_data
-    else:
-        nombre = apellido = "Desconocido"
-        habitacion = "?"
+        huesped_id = datos_consumo[0]
+        huesped_data = db.obtener_uno("SELECT NOMBRE, APELLIDO, HABITACION FROM HUESPEDES WHERE NUMERO = ?", (huesped_id,))
+        if huesped_data:
+            nombre, apellido, habitacion = huesped_data
+        else:
+            nombre = apellido = "Desconocido"
+            habitacion = "?"
 
-    # Registrar log con info completa
-    timestamp = datetime.now().isoformat(timespec='seconds')
-    log = (
-        f"[{timestamp}] CONSUMO ELIMINADO:\n"
-        f"Huésped: {nombre} {apellido} | Habitación: {habitacion} | Huesped_ID: {huesped_id}\n"
-        f"Producto: {producto_nombre} (ID: {producto_id}) | Cantidad: {cantidad} | Consumo_ID: {consumo_id}"
-    )
-    registrar_log("consumos_eliminados.log", log)
+        # Registrar log con info completa
+        timestamp = datetime.now().isoformat(timespec='seconds')
+        log = (
+            f"[{timestamp}] CONSUMO ELIMINADO:\n"
+            f"Huésped: {nombre} {apellido} | Habitación: {habitacion} | Huesped_ID: {huesped_id}\n"
+            f"Producto: {producto_nombre} (ID: {producto_id}) | Cantidad: {cantidad} | Consumo_ID: {consumo_id}"
+        )
+        registrar_log("consumos_eliminados.log", log)
 
-    # Restaurar stock
-    producto = db.obtener_uno("SELECT STOCK FROM PRODUCTOS WHERE CODIGO = ?", (producto_id,))
-    if producto:
-        stock_actual = producto[0]
-        stock_nuevo = stock_actual + cantidad
-        db.ejecutar("UPDATE PRODUCTOS SET STOCK = ? WHERE CODIGO = ?", (stock_nuevo, producto_id))
-        print(f"✔ Stock de '{producto_nombre}' restaurado.")
-    else:
-        print(f"⚠ Producto '{producto_nombre}' (ID: {producto_id}) no encontrado. No se restauró el stock.")
+        # Restaurar stock
+        producto = db.obtener_uno("SELECT STOCK FROM PRODUCTOS WHERE CODIGO = ?", (producto_id,))
+        if producto:
+            stock_actual = producto[0]
+            stock_nuevo = stock_actual + cantidad
+            db.ejecutar("UPDATE PRODUCTOS SET STOCK = ? WHERE CODIGO = ?", (stock_nuevo, producto_id))
+            print(f"✔ Stock de '{producto_nombre}' restaurado.")
+        else:
+            print(f"⚠ Producto '{producto_nombre}' (ID: {producto_id}) no encontrado. No se restauró el stock.")
 
-    # Eliminar consumo
-    db.ejecutar("DELETE FROM CONSUMOS WHERE ID = ?", (consumo_id,))
-    print(f"✔ Consumo #{i + 1} eliminado.")
+        # Eliminar consumo
+        db.ejecutar("DELETE FROM CONSUMOS WHERE ID = ?", (consumo_id,))
+        print(f"✔ Consumo #{i + 1} eliminado.")
 
 def gestionar_productos():
     while True:
@@ -1023,7 +1063,7 @@ def editar_inventario():
 
 def generar_reportes():
     while True:
-        respuesta_reportes = input("\n1. Generar reporte de consumos diarios\n2. Generar reporte de pasajeros abiertos\n3. Generar reporte de pasajeros cerrados\n4. Generar reporte de pronto checkin\n0. Volver al inicio\n").strip()
+        respuesta_reportes = input("\n1. Generar reporte de consumos diarios\n2. Generar reporte de pasajeros abiertos\n3. Generar reporte de pasajeros cerrados\n4. Generar reporte de pronto checkin\n5. Ver logs\n0. Volver al inicio\n").strip()
         if respuesta_reportes == "1":
             reporte_diario()
         elif respuesta_reportes == "2":
@@ -1032,6 +1072,8 @@ def generar_reportes():
             reporte_cerrados()
         elif respuesta_reportes == "4":
             reporte_pronto_checkin()
+        elif respuesta_reportes == "5":
+            ver_logs()
         elif respuesta_reportes == "0":
             return
         else:
@@ -1099,7 +1141,7 @@ def reporte_cerrados():
 
         if abiertos:
             respuesta = pedir_confirmacion("¡¡¡ Atención !!!\nNo se encontraron huéspedes cerrados pero HAY HUÉSPEDES CON CHECKOUT VENCIDO\n¿Desea verlos? (si/no): ")
-            if respuesta in ("si", "s"):
+            if respuesta == "si":
                 print("\nHuéspedes con checkout vencido:\n")
                 imprimir_huespedes(abiertos)
         else:
@@ -1118,6 +1160,20 @@ def reporte_pronto_checkin():
         return
     else:
         print(f"No hay huéspedes con check-in programado para mañana ({manana.strftime('%d-%m-%Y')}).")
+        return
+
+def ver_logs():
+    logs = {"1": "huespedes_eliminados.log", "2": "huespedes_cerrados.log", "3": "consumos_eliminados.log"}
+    print("\n¿Qué log quiere ver?\n1. Huéspedes eliminados\n2. Huéspedes cerrados\n3. Consumos eliminados\n0. Cancelar")
+    opcion = input("Seleccione una opción: ").strip()
+    if opcion == "0" or opcion not in logs:
+        return
+    path = os.path.join("logs", logs[opcion])
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as f:
+            print("\n" + f.read())
+    else:
+        print("No se encontró el archivo de log.")
         return
 
 ###INTERFAZ GRAFICA###
