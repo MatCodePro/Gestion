@@ -1,5 +1,15 @@
 #TODO:
 
+#Guardar LOG cuando se eliminan huéspedes, eliminan productos, o cierran huéspedes.
+#Al momento de registrar un huesped, si la fecha del checkin es anterior a hoy, que lo avise pero que permita registrarlo igual
+#Hasta ahora sólo al crear huesped y cambiar estado se modifica el registro. Hacerlo en el resto de las funciones que corresponda
+#Verificar nombres y funciones de editar y eliminar consumos
+""" Funciones eliminar_consumos y editar_consumos:
+
+La función editar_consumos se llama después de mostrar todos los consumos, pero el mensaje Ingrese el/los número(s) de consumo a eliminar separados por coma (ej: 1,3): podría colocarse mejor dentro de eliminar_consumos después de que se muestre la lista, y luego editar_consumos podría ser una función auxiliar.
+La función eliminar_consumos devuelve gestionar_consumos() lo que efectivamente vuelve a entrar en el menú. Esto podría no ser el flujo más intuitivo si el usuario quiere eliminar varios elementos. La función editar_consumos maneja la eliminación real y la restauración del stock. """
+
+
 from datetime import datetime, date, timedelta
 import sqlite3
 from unidecode import unidecode
@@ -43,7 +53,7 @@ def huespedes_existe():
     db.ejecutar('''CREATE TABLE IF NOT EXISTS HUESPEDES(NUMERO INTEGER PRIMARY KEY AUTOINCREMENT, APELLIDO TEXT, NOMBRE TEXT, TELEFONO INTEGER, EMAIL TEXT, BOOKING TEXT, ESTADO TEXT, CHECKIN TEXT, CHECKOUT TEXT, DOCUMENTO INTEGER, NACIMIENTO INTEGER, HABITACION INTEGER, CONTINGENTE INTEGER, REGISTRO TEXT)''')
 
 def consumos_existe():
-    db.ejecutar('''CREATE TABLE IF NOT EXISTS CONSUMOS(ID INTEGER PRIMARY KEY AUTOINCREMENT, HUESPED INTEGER, PRODUCTO INTEGER, CANTIDAD INTEGER, FECHA TEXT, FOREIGN KEY (HUESPED) REFERENCES HUESPEDES(NUMERO), FOREIGN KEY (PRODUCTO) REFERENCES PRODUCTOS(CODIGO)''')
+    db.ejecutar('''CREATE TABLE IF NOT EXISTS CONSUMOS(ID INTEGER PRIMARY KEY AUTOINCREMENT, HUESPED INTEGER, PRODUCTO INTEGER, CANTIDAD INTEGER, FECHA TEXT, FOREIGN KEY (HUESPED) REFERENCES HUESPEDES(NUMERO), FOREIGN KEY (PRODUCTO) REFERENCES PRODUCTOS(CODIGO))''')
 
 def imprimir_huesped(huesped):
     print(f"\nHuésped seleccionado:")
@@ -171,6 +181,8 @@ def gestionar_huespedes():
             editar_huesped()
         elif respuesta_huespedes == "5":
             eliminar_huesped()
+        elif respuesta_huespedes == "6":
+            mostrar_registro()
         elif respuesta_huespedes == "0":
             return
         else:
@@ -195,17 +207,13 @@ def nuevo_huesped():
         apellido = unidecode(respuesta_apellido)
         break
     while True:
-        nombre = input("\nEscriba el nombre del huesped ó (0) para cancelar: ").strip()
-        if nombre.isdigit():
-            try:
-                nombre = int(nombre)
-                if nombre == 0:
-                    return
-            except ValueError:
-                print("Selección inválida. Intente nuevamente. ")
-                continue
+        respuesta_nombre = input("\nEscriba el nombre del huesped ó (0) para cancelar: ").strip()
+        if nombre == "0":
+            return
+        if not respuesta_nombre:
+            print("El nombre no puede estar vacío")
         else:
-            nombre = unidecode(nombre)
+            nombre = unidecode(respuesta_nombre)
             break
     while True:
         telefono = pedir_entero("Ingrese un whatsapp de contacto: ", minimo=10000000000)
@@ -292,7 +300,7 @@ def cambiar_estado():
             return buscar_huesped()
         if numero == "0":
             print("Cambio cancelado.")
-            return gestionar_huespedes()
+            return
         if not numero.isdigit():
             print("Número inválido. Intente nuevamente.")
             continue
@@ -370,8 +378,9 @@ def cambiar_estado():
         # Actualizar el registro de historial
         registro_anterior_data = db.obtener_uno("SELECT REGISTRO FROM HUESPEDES WHERE NUMERO = ?", (numero,))
         registro_anterior = registro_anterior_data[0] if registro_anterior_data and registro_anterior_data[0] else ""
+        separador = "\n---\n"
         registro_actual = f"Estado modificado a {nuevo_estado} - {datetime.now().isoformat(timespec='seconds')}"
-        nuevo_registro = registro_anterior + registro_actual
+        nuevo_registro = registro_anterior + separador + registro_actual
         actualizar_huesped(db, numero, "REGISTRO", nuevo_registro)
 
         print(f"✔ Estado actualizado a {nuevo_estado}.")
@@ -405,6 +414,9 @@ def editar_huesped():
         imprimir_huesped(huesped)
         break
 
+    registro_anterior_data = registro_anterior_data = db.obtener_uno("SELECT REGISTRO FROM HUESPEDES WHERE NUMERO = ?", (numero,))
+    registro_anterior = registro_anterior_data[0] if registro_anterior_data and registro_anterior_data[0] else ""
+
     campos = {
 "1": ("APELLIDO", lambda: unidecode(input("Ingrese el nuevo apellido: ").strip())),
 "2": ("NOMBRE", lambda: unidecode(input("Ingrese el nuevo nombre: ").strip())),
@@ -429,6 +441,10 @@ def editar_huesped():
             campo_sql, funcion_valor = campos[opcion]
             nuevo_valor = funcion_valor()
             actualizar_huesped(db, numero, campo_sql, nuevo_valor)
+            separador = "\n---\n"
+            registro_actual = f"Se modificó {campo_sql} a ´{nuevo_valor} - {datetime.now().isoformat(timespec='seconds')}"
+            nuevo_registro = registro_anterior + separador + registro_actual
+            actualizar_huesped(db, numero, "REGISTRO", nuevo_registro)
             print(f"✔ {campo_sql} actualizado correctamente.")
             break
         else:
@@ -463,14 +479,44 @@ def eliminar_huesped():
         if confirmacion == "si":
             eliminar_huesped_db(db, numero)
             print("✔ Huésped eliminado.")
-            return gestionar_huespedes()
+            return
         else:
             print("Eliminación cancelada.")
             return
 
+def mostrar_registro():
+    while True:
+        numero = input("Ingrese el número de huésped para ver su historial, (*) para buscar ó (0) para cancelar: ").strip()
+        if numero == "0":
+            return gestionar_huespedes()
+        if numero == "*":
+            buscar_huesped()
+            continue
+        if not numero.isdigit():
+            print("Número inválido.")
+            continue
+
+        numero = int(numero)
+        huesped = db.obtener_uno("SELECT NOMBRE, APELLIDO, REGISTRO FROM HUESPEDES WHERE NUMERO = ?", (numero,))
+        if huesped is None:
+            print("❌ Huésped no encontrado.")
+            continue
+
+        nombre, apellido, registro = huesped
+        print(f"\nHistorial del huésped {nombre} {apellido}:\n")
+
+        if not registro:
+            print("Este huésped no tiene historial registrado.")
+        else:
+            entradas = registro.split("\n---\n")
+            for i, linea in enumerate(entradas, start=1):
+                print(f"{i}. {linea.strip()}\n")
+
+        return gestionar_huespedes()
+
 def gestionar_consumos():
     while True:
-        respuesta_consumos = input("\n1. Agregar consumo\n2. Ver consumos\n0. Volver al inicio\n").strip()
+        respuesta_consumos = input("\n1. Agregar consumo\n2. Ver consumos\n3. Eliminar consumos\n0. Volver al inicio\n").strip()
         if respuesta_consumos == "1":
             agregar_consumo()
         elif respuesta_consumos == "2":
@@ -486,7 +532,7 @@ def agregar_consumo():
     while True:
         habitacion = input("Ingrese el número de habitación ó (0) para cancelar: ").strip()
         if habitacion == "0":
-            return gestionar_consumos()
+            return
         if not habitacion.isdigit():
             print("Número inválido.")
             continue
@@ -530,37 +576,37 @@ def agregar_consumo():
         while True:
             cantidad = pedir_entero("Ingrese la cantidad consumida ó (0) para cancelar: ", minimo=0)
             if cantidad == 0:
-                return
+                print("❌ Producto cancelado.")
+                break  # vuelve a pedir otro producto
             elif cantidad > stock:
                 print(f"❌ No hay suficiente stock. Disponibles: {stock}")
                 continue
             else:
+                fecha = datetime.now().isoformat(sep=" ", timespec="seconds")
+                db.ejecutar("INSERT INTO CONSUMOS (HUESPED, PRODUCTO, CANTIDAD, FECHA) VALUES (?, ?, ?, ?)",
+                            (huesped[0], codigo, cantidad, fecha))
+
+                consumo_id = db.cursor.lastrowid
+                consumos_agregados.append((consumo_id, fecha, codigo, nombre, cantidad))
+
+                nuevo_stock = stock - cantidad
+                db.ejecutar("UPDATE PRODUCTOS SET STOCK = ? WHERE CODIGO = ?", (nuevo_stock, codigo))
+
+                print(f"✔ Se registró el consumo de {cantidad} unidad(es) de '{nombre}' para {huesped[2]} {huesped[1]}, habitación {habitacion}.")
                 break
-
-        fecha = datetime.now().isoformat(sep=" ", timespec="seconds")
-        db.ejecutar("INSERT INTO CONSUMOS (HUESPED, PRODUCTO, CANTIDAD, FECHA) VALUES (?, ?, ?, ?)",
-                    (huesped[0], codigo, cantidad, fecha))  # huesped[0] = NUMERO
-
-        consumo_id = db.cursor.lastrowid
-        consumos_agregados.append((consumo_id, fecha, codigo, nombre, cantidad))  # Incluye PRODUCTO_ID
-
-        nuevo_stock = stock - cantidad
-        db.ejecutar("UPDATE PRODUCTOS SET STOCK = ? WHERE CODIGO = ?", (nuevo_stock, codigo))
-
-        print(f"✔ Se registró el consumo de {cantidad} unidad(es) de '{nombre}' para {huesped[2]} {huesped[1]}, de la habitación {habitacion}.")
     
     if consumos_agregados:
         respuesta = pedir_confirmacion("\n¿Desea eliminar alguno de los consumos recién agregados? (si/no): ")
         if respuesta in ("si", "s"):
             editar_consumos(consumos_agregados)
 
-    return gestionar_consumos()
+    return
 
 def ver_consumos():
     while True:
         habitacion = input("Ingrese el número de habitación para ver sus consumos, (*) para buscar ó (0) para cancelar: ").strip()
         if habitacion == "0":
-            return gestionar_consumos()
+            return
         if habitacion == "*":
             buscar_huesped()
             continue
@@ -593,7 +639,7 @@ def eliminar_consumos():
     while True:
         habitacion = input("Ingrese el número de habitación para eliminar consumos, (*) para buscar ó (0) para cancelar: ").strip()
         if habitacion == "0":
-            return gestionar_consumos()
+            return
         if habitacion == "*":
             buscar_huesped()
             continue
@@ -614,7 +660,7 @@ def eliminar_consumos():
 
         if not consumos:
             print("Esta habitación no tiene consumos registrados.")
-            return gestionar_consumos()
+            return
 
         print(f"\nConsumos de la habitación {huesped[11]}, huésped {huesped[2]} {huesped[1]}:\n")
         print(f"{'#':<3} {'FECHA':<12} {'PRODUCTO':<30} {'CANTIDAD':<10}")
@@ -623,7 +669,7 @@ def eliminar_consumos():
             print(f"{idx:<3} {fecha:<12} {producto_nombre:<30} {cantidad:<10}")
 
         editar_consumos(consumos)
-        return gestionar_consumos()
+        return
 
 def editar_consumos(lista_consumos):
     """
@@ -705,32 +751,33 @@ def ver_productos():
     return
 
 def buscar_producto():
-    criterio = input("Ingrese el producto a buscar ó (0) para cancelar: ").strip()
-    if criterio == "0":
-        return
-    
-    criterios = criterio.lower().split()
-    if not criterios:
-        print("Debe ingresar al menos una palabra clave.")
-        return buscar_producto()
+    while True:
+        criterio = input("Ingrese el nombre o código del producto, ó (0) para cancelar: ").strip()
+        if criterio == "0":
+            return
+        criterios = criterio.lower().split()
+        if not criterios:
+            print("Debe ingresar al menos una palabra para buscar.")
+            continue
+        else:
+            break
 
     where_clauses = ["LOWER(NOMBRE) LIKE ?"] * len(criterios)
-    params = [f"%{p}%" for p in criterios]
+    params = [f"%{palabra}%" for palabra in criterios]
+
     query = f"SELECT * FROM PRODUCTOS WHERE {' OR '.join(where_clauses)}"
     productos = db.obtener_todos(query, params)
 
-    resultados = [
-        (prod, sum(1 for palabra in criterios if palabra in prod[1].lower()))
-        for prod in productos
-    ]
+    # Ordenar por relevancia (cantidad de palabras que coinciden en el nombre)
+    resultados = [(prod, sum(1 for palabra in criterios if palabra in prod[1].lower())) for prod in productos]
     resultados.sort(key=lambda x: x[1], reverse=True)
 
     if resultados:
-        print(f"\nResultados para: '{criterio}'")
+        print(f"\nResultados para: '{criterio}'\n")
         productos_ordenados = [p for p, _ in resultados]
         imprimir_productos(productos_ordenados)
     else:
-        print("No se encontraron productos.")
+        print("No se encontraron productos que coincidan con la búsqueda.")
 
     return
 
@@ -948,7 +995,7 @@ def reporte_abiertos():
         imprimir_huespedes(huespedes)
         return
     else:
-        print("No se hayaron huéspedes abiertos\n")
+        print("No se hallaron huéspedes abiertos\n")
         return
 
 def reporte_cerrados():
@@ -982,7 +1029,7 @@ def reporte_cerrados():
                 print("\nHuéspedes con checkout vencido:\n")
                 imprimir_huespedes(abiertos)
         else:
-            print("No se hayaron huéspedes cerrados el día de hoy")
+            print("No se hallaron huéspedes cerrados el día de hoy")
 
 def reporte_pronto_checkin():
     manana = date.today() + timedelta(days=1)
