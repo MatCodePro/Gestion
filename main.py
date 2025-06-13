@@ -1,7 +1,6 @@
 #TODO:
 
-#Guardar LOG cuando se eliminan huéspedes, eliminan productos, o cierran huéspedes.
-#Hasta ahora sólo al crear huesped y cambiar estado se modifica el registro. Hacerlo en el resto de las funciones que corresponda
+#Guardar LOG cuando se eliminan huéspedes, eliminan consumos o cierran huéspedes.
 
 
 from datetime import datetime, date, timedelta
@@ -555,6 +554,7 @@ def agregar_consumo():
         imprimir_huesped(huesped)
         break
 
+    numero_huesped = huesped[0]
     consumos_agregados = []
 
     while True:
@@ -600,6 +600,12 @@ def agregar_consumo():
 
                 nuevo_stock = stock - cantidad
                 db.ejecutar("UPDATE PRODUCTOS SET STOCK = ? WHERE CODIGO = ?", (nuevo_stock, codigo))
+                registro_anterior_data = db.obtener_uno("SELECT REGISTRO FROM HUESPEDES WHERE NUMERO = ?", (numero_huesped,))
+                registro_anterior = registro_anterior_data[0] if registro_anterior_data and registro_anterior_data[0] else ""
+                separador = "\n---\n"
+                registro_consumo = f"Consumo agregado: {nombre} (x{cantidad}) - {fecha}"
+                nuevo_registro = registro_anterior + separador + registro_consumo if registro_anterior else registro_consumo
+                editar_huesped_db(db, numero_huesped, {"REGISTRO": nuevo_registro})
 
                 print(f"✔ Se registró el consumo de {cantidad} unidad(es) de '{nombre}' para {huesped[2]} {huesped[1]}, habitación {habitacion}.")
                 break
@@ -736,7 +742,7 @@ def gestionar_productos():
         else: 
             print("Opción inválida. Intente nuevamente: ")
 
-def registrar_producto(db, data):
+def agregar_producto_db(db, data):
     sql = "INSERT INTO PRODUCTOS (NOMBRE, PRECIO, STOCK) VALUES (?, ?, ?)"
     db.ejecutar(sql, (data["nombre"], data["precio"], data["stock"]))
 
@@ -749,7 +755,7 @@ def agregar_producto():
     stock = pedir_entero("Ingrese el stock inicial: ", minimo=0)
 
     data = {"nombre": nombre, "precio": precio, "stock": stock}
-    registrar_producto(db, data)
+    agregar_producto_db(db, data)
     print("✔ Producto registrado correctamente.")
     return
 
