@@ -2,11 +2,13 @@
 
 #Guardar LOG cuando se eliminan huéspedes, eliminan consumos o cierran huéspedes.
 
+#Los al eliminar consumos
 
 from datetime import datetime, date, timedelta
 import sqlite3
 from unidecode import unidecode
 import re
+import os
 
 
 ### CLASES ###
@@ -47,6 +49,12 @@ def huespedes_existe():
 
 def consumos_existe():
     db.ejecutar('''CREATE TABLE IF NOT EXISTS CONSUMOS(ID INTEGER PRIMARY KEY AUTOINCREMENT, HUESPED INTEGER, PRODUCTO INTEGER, CANTIDAD INTEGER, FECHA TEXT, FOREIGN KEY (HUESPED) REFERENCES HUESPEDES(NUMERO), FOREIGN KEY (PRODUCTO) REFERENCES PRODUCTOS(CODIGO))''')
+
+def registrar_log(nombre_archivo, contenido):
+    os.makedirs("logs", exist_ok=True)
+    ruta = os.path.join("logs", nombre_archivo)
+    with open(ruta, "a", encoding="utf-8") as f:
+        f.write(contenido + "\n" + "-"*60 + "\n")
 
 def imprimir_huesped(huesped):
     print(f"\nHuésped seleccionado:")
@@ -374,6 +382,26 @@ def cambiar_estado():
             registro_nuevo = f"Estado modificado a {nuevo_estado} - {datetime.now().isoformat(timespec='seconds')}"
             registro = registro_anterior + separador + registro_nuevo
             updates = {"ESTADO": nuevo_estado, "CHECKOUT": checkout, "HABITACION": 0, "REGISTRO": registro}
+            # Obtener información previa del huésped para el log
+            huesped_data = db.obtener_uno("SELECT * FROM HUESPEDES WHERE NUMERO = ?", (numero,))
+            if huesped_data:
+                nombre = huesped_data[2]
+                apellido = huesped_data[1]
+                habitacion = huesped_data[11]
+                estado_anterior = huesped_data[6]
+                registro_anterior = huesped_data[13]
+            else:
+                nombre = apellido = "Desconocido"
+                habitacion = estado_anterior = registro_anterior = "?"
+
+            # Construir log de cierre
+            timestamp = datetime.now().isoformat(timespec='seconds')
+            log = (
+                f"[{timestamp}] HUÉSPED CERRADO:\n"
+                f"Nombre: {nombre} {apellido} | Habitación: {habitacion} | Estado anterior: {estado_anterior}\n"
+                f"Registro previo:\n{registro_anterior.strip()}"
+            )
+            registrar_log("huespedes_cerrados.log", log)
             editar_huesped_db(db, numero, updates) # Llamada única
 
         print(f"✔ Estado actualizado a {nuevo_estado}.")
@@ -485,6 +513,14 @@ def eliminar_huesped():
 
         confirmacion = pedir_confirmacion("¿Está seguro que desea eliminar este huésped? (si/no): ")
         if confirmacion == "si":
+            timestamp = datetime.now().isoformat(timespec='seconds')
+            nombre = huesped[2]
+            apellido = huesped[1]
+            habitacion = huesped[11]
+            estado = huesped[6]
+            registro = huesped[13]
+            log = (f"[{timestamp}] HUÉSPED ELIMINADO:\nNombre: {nombre} {apellido} | Habitación: {habitacion} | Estado: {estado}\nRegistro previo:\n{registro.strip()}")
+            registrar_log("huespedes_eliminados.log", log)
             eliminar_huesped_db(db, numero)
             print("✔ Huésped eliminado.")
             return
@@ -708,21 +744,44 @@ def eliminar_consumos_db(lista_consumos):
             print(f"Entrada inválida: {item}")
 
     for i in a_eliminar:
-        consumo_id, _, producto_id, producto_nombre, cantidad = lista_consumos[i]
+    consumo_id, _, producto_id, producto_nombre, cantidad = lista_consumos[i]
 
-        # Obtener código del producto
-        producto = db.obtener_uno("SELECT STOCK FROM PRODUCTOS WHERE CODIGO = ?", (producto_id,))
-        if producto:
-            stock_actual = producto[0]
-            stock_nuevo = stock_actual + cantidad
-            db.ejecutar("UPDATE PRODUCTOS SET STOCK = ? WHERE CODIGO = ?", (stock_nuevo, producto_id))
-            print(f"✔ Stock de '{producto_nombre}' restaurado.")
-        else:
-            print(f"⚠ Producto '{producto_nombre}' (ID: {producto_id}) no encontrado. No se restauró el stock.")
+    # Obtener huésped desde el consumo
+    datos_consumo = db.obtener_uno("SELECT HUESPED FROM CONSUMOS WHERE ID = ?", (consumo_id,))
+    if not datos_consumo:
+        print(f"⚠ No se pudo obtener el huésped del consumo #{consumo_id}")
+        continue
 
-        # Eliminar consumo
-        db.ejecutar("DELETE FROM CONSUMOS WHERE ID = ?", (consumo_id,))
-        print(f"✔ Consumo #{i+1} eliminado y stock de '{producto_nombre}' restaurado.")
+    huesped_id = datos_consumo[0]
+    huesped_data = db.obtener_uno("SELECT NOMBRE, APELLIDO, HABITACION FROM HUESPEDES WHERE NUMERO = ?", (huesped_id,))
+    if huesped_data:
+        nombre, apellido, habitacion = huesped_data
+    else:
+        nombre = apellido = "Desconocido"
+        habitacion = "?"
+
+    # Registrar log con info completa
+    timestamp = datetime.now().isoformat(timespec='seconds')
+    log = (
+        f"[{timestamp}] CONSUMO ELIMINADO:\n"
+        f"Huésped: {nombre} {apellido} | Habitación: {habitacion} | Huesped_ID: {huesped_id}\n"
+        f"Producto: {producto_nombre} (ID: {producto_id}) | Cantidad: {cantidad} | Consumo_ID: {consumo_id}"
+    )
+    registrar_log("consumos_eliminados.log", log)
+
+    # Restaurar stock
+    producto = db.obtener_uno("SELECT STOCK FROM PRODUCTOS WHERE CODIGO = ?", (producto_id,))
+    if producto:
+        stock_actual = producto[0]
+        stock_nuevo = stock_actual + cantidad
+        db.ejecutar("UPDATE PRODUCTOS SET STOCK = ? WHERE CODIGO = ?", (stock_nuevo, producto_id))
+        print(f"✔ Stock de '{producto_nombre}' restaurado.")
+    else:
+        print(f"⚠ Producto '{producto_nombre}' (ID: {producto_id}) no encontrado. No se restauró el stock.")
+
+    # Eliminar consumo
+    db.ejecutar("DELETE FROM CONSUMOS WHERE ID = ?", (consumo_id,))
+    print(f"✔ Consumo #{i + 1} eliminado.")
 
 def gestionar_productos():
     while True:
